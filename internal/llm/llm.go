@@ -51,7 +51,7 @@ type ChatChoice struct {
 func getBaseURL() string {
 	url := os.Getenv("LITELLM_BASE_URL")
 	if url == "" {
-		return "http://localhost:4000/v1"
+		return "http://localhost:36253/v1"
 	}
 	return strings.TrimSuffix(url, "/")
 }
@@ -63,7 +63,7 @@ func getAPIKey() string {
 func getEmbeddingModel() string {
 	model := os.Getenv("LITELLM_EMBEDDING_MODEL")
 	if model == "" {
-		return "text-embedding-3-small"
+		return "gemini-embedding-001"
 	}
 	return model
 }
@@ -71,7 +71,7 @@ func getEmbeddingModel() string {
 func getChatModel() string {
 	model := os.Getenv("LITELLM_CHAT_MODEL")
 	if model == "" {
-		return "gpt-4o-mini"
+		return "gpt-5"
 	}
 	return model
 }

@@ -10,9 +10,9 @@ def get_env(key, default):
     return os.environ.get(key, default)
 
 def main():
-    base_url = get_env("LITELLM_BASE_URL", "http://localhost:4000/v1").rstrip("/")
+    base_url = get_env("LITELLM_BASE_URL", "http://localhost:36253/v1").rstrip("/") 
     api_key = get_env("LITELLM_API_KEY", "")
-    embed_model = get_env("LITELLM_EMBEDDING_MODEL", "text-embedding-3-small")
+    embed_model = get_env("LITELLM_EMBEDDING_MODEL", "gemini-embedding-001")
     chat_model = get_env("LITELLM_CHAT_MODEL", "gpt-4o-mini")
 
     print("==================================================")

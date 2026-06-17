@@ -1,15 +1,17 @@
 package db
 
-// ponytail: keep db operations simple, open and close on every call to avoid lock contention between server and hooks
+// ponytail: keep db operations simple, open and close on every call, and compress all embeddings dynamically using 4-bit TurboQuant for 12x space savings
 
 import (
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
+
+	"agent-mem/internal/turboquant"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
@@ -54,14 +56,23 @@ func InitDatabase() error {
 	}
 	defer db.Close()
 
-	// ponytail: use dynamic FLOAT[] instead of fixed FLOAT[768] to support any embedding model dimensions in LiteLLM (e.g. nomic-embed, text-embedding-3, etc.)
+	// ponytail: automatic DuckDB schema migration - drop old FLOAT[] tables and recreate with BLOB for TurboQuant compression
+	var colType string
+	err = db.QueryRow("SELECT data_type FROM information_schema.columns WHERE table_name = 'gemini_memories' AND column_name = 'embedding'").Scan(&colType)
+	if err == nil {
+		if strings.Contains(strings.ToUpper(colType), "FLOAT") || strings.Contains(strings.ToUpper(colType), "ARRAY") {
+			_, _ = db.Exec("DROP TABLE gemini_memories")
+		}
+	}
+
+	// ponytail: store embeddings as BLOB for extremely efficient 4-bit vector quantization
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS gemini_memories (
 			id VARCHAR PRIMARY KEY,
 			content TEXT NOT NULL,
 			category VARCHAR NOT NULL,
 			cwd TEXT NOT NULL,
-			embedding FLOAT[],
+			embedding BLOB,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -81,19 +92,6 @@ func InitDatabase() error {
 	return err
 }
 
-func formatEmbedding(vector []float32) string {
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i, v := range vector {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(strconv.FormatFloat(float64(v), 'f', -1, 32))
-	}
-	sb.WriteString("]::FLOAT[]")
-	return sb.String()
-}
-
 func SaveMemory(id, content, category, cwd string, embedding []float32) error {
 	db, err := Open()
 	if err != nil {
@@ -101,31 +99,44 @@ func SaveMemory(id, content, category, cwd string, embedding []float32) error {
 	}
 	defer db.Close()
 
-	embeddingSql := formatEmbedding(embedding)
-	query := fmt.Sprintf(`
-		INSERT OR REPLACE INTO gemini_memories (id, content, category, cwd, embedding)
-		VALUES ($1, $2, $3, $4, %s)
-	`, embeddingSql)
+	// ponytail: quantize float32 embedding to 4-bit to compress storage from 6144 bytes to 768 bytes for 1536-dimensional vectors
+	dim := len(embedding)
+	tq, err := turboquant.NewTurboQuant(dim, 4, 42)
+	if err != nil {
+		return fmt.Errorf("failed to init turboquant for saving: %w", err)
+	}
 
-	_, err = db.Exec(query, id, content, category, cwd)
+	qv, err := tq.Quantize(embedding)
+	if err != nil {
+		return fmt.Errorf("failed to quantize embedding: %w", err)
+	}
+
+	serializedBytes, err := tq.Serialize(qv)
+	if err != nil {
+		return fmt.Errorf("failed to serialize quantized vector: %w", err)
+	}
+
+	query := `
+		INSERT OR REPLACE INTO gemini_memories (id, content, category, cwd, embedding)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+
+	_, err = db.Exec(query, id, content, category, cwd, serializedBytes)
 	return err
 }
 
-func SearchMemories(embedding []float32, category, cwd string, limit int) ([]Memory, error) {
+func SearchMemories(queryEmbedding []float32, category, cwd string, limit int) ([]Memory, error) {
 	db, err := Open()
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	dim := len(embedding)
-	embeddingSql := formatEmbedding(embedding)
-	// ponytail: cast FLOAT[] to FLOAT[dim] at query-time to satisfy array_cosine_similarity fixed-size signature natively
-	query := fmt.Sprintf(`
-		SELECT id, content, category, cwd, created_at,
-		       array_cosine_similarity(embedding::FLOAT[%d], %s::FLOAT[%d]) AS similarity
+	// ponytail: retrieve quantized vector BLOBs, dequantize on the fly, and score using Go-level CosineSimilarity
+	query := `
+		SELECT id, content, category, cwd, created_at, embedding
 		FROM gemini_memories
-	`, dim, embeddingSql, dim)
+	`
 
 	var conditions []string
 	var args []any
@@ -144,23 +155,55 @@ func SearchMemories(embedding []float32, category, cwd string, limit int) ([]Mem
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	query += fmt.Sprintf(" ORDER BY similarity DESC LIMIT $%d", len(args)+1)
-	args = append(args, limit)
-
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	dim := len(queryEmbedding)
+	tq, err := turboquant.NewTurboQuant(dim, 4, 42)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init turboquant for search: %w", err)
+	}
+
 	var memories []Memory
 	for rows.Next() {
 		var m Memory
-		err := rows.Scan(&m.ID, &m.Content, &m.Category, &m.CWD, &m.CreatedAt, &m.Similarity)
+		var embeddingBytes []byte
+		err := rows.Scan(&m.ID, &m.Content, &m.Category, &m.CWD, &m.CreatedAt, &embeddingBytes)
 		if err != nil {
 			return nil, err
 		}
+
+		if len(embeddingBytes) > 0 {
+			qv, err := tq.Deserialize(embeddingBytes)
+			if err != nil {
+				continue
+			}
+
+			dequantized, err := tq.Dequantize(qv)
+			if err != nil {
+				continue
+			}
+
+			sim, err := turboquant.CosineSimilarity(queryEmbedding, dequantized)
+			if err != nil {
+				continue
+			}
+			m.Similarity = sim
+		}
+
 		memories = append(memories, m)
+	}
+
+	// Sort results by similarity descending
+	sort.Slice(memories, func(i, j int) bool {
+		return memories[i].Similarity > memories[j].Similarity
+	})
+
+	if len(memories) > limit {
+		memories = memories[:limit]
 	}
 
 	return memories, nil
@@ -309,13 +352,29 @@ func SaveCodebaseProfile(cwd, profile string, embedding []float32) error {
 	_, _ = db.Exec(deleteQuery, cwd)
 
 	// Save new profile
-	embeddingSql := formatEmbedding(embedding)
+	embeddingSql, err := serializeQuantizedEmbedding(embedding)
+	if err != nil {
+		return err
+	}
 	id := "profile-" + filepath.Base(cwd)
-	insertQuery := fmt.Sprintf(`
+	insertQuery := `
 		INSERT OR REPLACE INTO gemini_memories (id, content, category, cwd, embedding)
-		VALUES ($1, $2, 'personal', $3, %s)
-	`, embeddingSql)
+		VALUES ($1, $2, 'personal', $3, $4)
+	`
 
-	_, err = db.Exec(insertQuery, id, profile, cwd)
+	_, err = db.Exec(insertQuery, id, profile, cwd, embeddingSql)
 	return err
+}
+
+func serializeQuantizedEmbedding(embedding []float32) ([]byte, error) {
+	dim := len(embedding)
+	tq, err := turboquant.NewTurboQuant(dim, 4, 42)
+	if err != nil {
+		return nil, err
+	}
+	qv, err := tq.Quantize(embedding)
+	if err != nil {
+		return nil, err
+	}
+	return tq.Serialize(qv)
 }

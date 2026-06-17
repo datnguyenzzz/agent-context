@@ -6,6 +6,7 @@ require (
 	github.com/duckdb/duckdb-go/v2 v2.10503.1
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	gonum.org/v1/gonum v0.16.0
 )
 
 require (
