@@ -30,15 +30,17 @@ type AddArgs struct {
 }
 
 func startPeriodicIndexUpdate(tq *turboquant.TurboQuant) {
-	// ponytail: periodically run incremental codebase index update in background every 10 minutes
+	// ponytail: periodically run incremental codebase index update in background every 10 minutes, ONLY for registered codebases in DB
 	ticker := time.NewTicker(10 * time.Minute)
 	go func() {
 		for range ticker.C {
-			cwd, err := os.Getwd()
+			codebases, err := db.ListCodebases()
 			if err != nil {
 				continue
 			}
-			_, _, _, _ = merkle.UpdateIndex(cwd, tq)
+			for _, c := range codebases {
+				_, _, _, _ = merkle.UpdateIndex(c.CWD, tq)
+			}
 		}
 	}()
 }

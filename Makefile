@@ -30,6 +30,22 @@ install: build
 	gemini extensions link . --consent
 	@echo "Extension 'agent-mem' linked and installed successfully!"
 
+# [3] Index a target codebase (Default: DIR=.)
+# Usage: make index DIR=/path/to/repo
+DIR ?= .
+index:
+	@if [ -f ./dist/indexer ]; then \
+		read -p "Indexer binary found. Do you want to rebuild it first? [y/N]: " ans; \
+		if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+			make build; \
+		fi \
+	else \
+		make build; \
+	fi
+	@echo "================================================================================"
+	@echo "Indexing target codebase: $(DIR)..."
+	./dist/indexer $(DIR)
+
 # Run tests and self-checks
 test:
 	@echo "Running package unit tests..."

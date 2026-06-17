@@ -247,4 +247,62 @@ func TestMultiCodebaseAndPersonalMemoriesIntegration(t *testing.T) {
 			t.Errorf("expected search in Codebase A to yield main.go chunk, got: %s", m.Content)
 		}
 	}
+
+	// 7. Modification Step for both Codebases A and B
+	// Modify main.go in Codebase A
+	_ = os.WriteFile(mainGoPath, []byte("package main\n\nfunc Main() {\n\tprintln(\"A modified!\")\n}"), 0644)
+
+	// Modify README.md in Codebase B
+	_ = os.WriteFile(readmeMdPath, []byte("# Readme\n\nProject B description - modified!"), 0644)
+
+	// Run incremental sync on Codebase A
+	addedA, modifiedA, deletedA, err := merkle.UpdateIndex(tmpCodebaseA, tq)
+	if err != nil {
+		t.Fatalf("UpdateIndex on Codebase A failed: %v", err)
+	}
+	if addedA != 0 || modifiedA != 1 || deletedA != 0 {
+		t.Errorf("expected 1 modified file in Codebase A, got: added=%d, modified=%d, deleted=%d", addedA, modifiedA, deletedA)
+	}
+
+	// Run incremental sync on Codebase B
+	addedB, modifiedB, deletedB, err := merkle.UpdateIndex(tmpCodebaseB, tq)
+	if err != nil {
+		t.Fatalf("UpdateIndex on Codebase B failed: %v", err)
+	}
+	if addedB != 0 || modifiedB != 1 || deletedB != 0 {
+		t.Errorf("expected 1 modified file in Codebase B, got: added=%d, modified=%d, deleted=%d", addedB, modifiedB, deletedB)
+	}
+
+	// Verify search results dynamically load the newly modified code on the fly from disk
+	resultsA_updated, err := db.SearchMemories(mockEmbed1, "project", tmpCodebaseA, 5, tq)
+	if err != nil {
+		t.Fatalf("failed to search updated codebase A memories: %v", err)
+	}
+
+	foundUpdatedA := false
+	for _, m := range resultsA_updated {
+		if strings.Contains(m.Content, "A modified!") {
+			foundUpdatedA = true
+			break
+		}
+	}
+	if !foundUpdatedA {
+		t.Error("expected search results for Codebase A to dynamically load modified content from disk")
+	}
+
+	resultsB_updated, err := db.SearchMemories(mockEmbed2, "project", tmpCodebaseB, 5, tq)
+	if err != nil {
+		t.Fatalf("failed to search updated codebase B memories: %v", err)
+	}
+
+	foundUpdatedB := false
+	for _, m := range resultsB_updated {
+		if strings.Contains(m.Content, "modified!") {
+			foundUpdatedB = true
+			break
+		}
+	}
+	if !foundUpdatedB {
+		t.Error("expected search results for Codebase B to dynamically load modified content from disk")
+	}
 }

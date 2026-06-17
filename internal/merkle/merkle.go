@@ -282,11 +282,15 @@ func UpdateIndex(absPath string, tq *turboquant.TurboQuant) (int, int, int, erro
 	filesToProcess := append(added, modified...)
 	type IndexJob struct {
 		relPath          string
+		startLine        int
+		endLine          int
 		formattedContent string
 	}
 
 	type IndexResult struct {
 		relPath          string
+		startLine        int
+		endLine          int
 		formattedContent string
 		embedding        []float32
 		err              error
@@ -305,6 +309,8 @@ func UpdateIndex(absPath string, tq *turboquant.TurboQuant) (int, int, int, erro
 			formattedContent := fmt.Sprintf("File: %s (Lines: %d-%d)\nContent:\n%s", relPath, chunk.StartLine, chunk.EndLine, chunk.Content)
 			jobs = append(jobs, IndexJob{
 				relPath:          relPath,
+				startLine:        chunk.StartLine,
+				endLine:          chunk.EndLine,
 				formattedContent: formattedContent,
 			})
 		}
@@ -332,6 +338,8 @@ func UpdateIndex(absPath string, tq *turboquant.TurboQuant) (int, int, int, erro
 				embedding, err := llm.GetEmbedding(j.formattedContent)
 				results[idx] = IndexResult{
 					relPath:          j.relPath,
+					startLine:        j.startLine,
+					endLine:          j.endLine,
 					formattedContent: j.formattedContent,
 					embedding:        embedding,
 					err:              err,
@@ -354,8 +362,10 @@ func UpdateIndex(absPath string, tq *turboquant.TurboQuant) (int, int, int, erro
 				continue
 			}
 
+			// ponytail: privacy preservation - save ONLY the metadata header to DuckDB instead of raw code chunks!
+			metadataHeader := fmt.Sprintf("File: %s (Lines: %d-%d)", res.relPath, res.startLine, res.endLine)
 			id := uuid.New().String()
-			if err := db.SaveMemory(id, res.formattedContent, "project", absPath, res.embedding, tq); err != nil {
+			if err := db.SaveMemory(id, metadataHeader, "project", absPath, res.embedding, tq); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to save chunk to memory store: %v\n", err)
 				continue
 			}

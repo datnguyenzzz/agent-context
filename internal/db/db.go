@@ -1,6 +1,7 @@
 package db
 
 // ponytail: keep db operations simple, open and close on every call, standardize all embeddings to exactly 3072 dimensions, and compress using the explicitly passed 4-bit TurboQuant dependency
+// ponytail: privacy preservation - codebase file contents are NEVER stored in the database, only their metadata. Code is read on-demand during searches from local disk.
 
 import (
 	"database/sql"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +40,56 @@ func normalizeVectorTo3072(vec []float32) []float32 {
 	padded := make([]float32, targetDim)
 	copy(padded, vec)
 	return padded
+}
+
+func parseMetadataHeader(content string) (relPath string, startLine, endLine int, ok bool) {
+	// Format: "File: <relPath> (Lines: <start>-<end>)"
+	if !strings.HasPrefix(content, "File: ") {
+		return "", 0, 0, false
+	}
+	parts := strings.SplitN(content[6:], " (Lines: ", 2)
+	if len(parts) != 2 {
+		return "", 0, 0, false
+	}
+	relPath = parts[0]
+
+	rangeParts := strings.SplitN(strings.TrimSuffix(parts[1], ")"), "-", 2)
+	if len(rangeParts) != 2 {
+		return "", 0, 0, false
+	}
+
+	var err error
+	startLine, err = strconv.Atoi(rangeParts[0])
+	if err != nil {
+		return "", 0, 0, false
+	}
+	endLine, err = strconv.Atoi(rangeParts[1])
+	if err != nil {
+		return "", 0, 0, false
+	}
+
+	return relPath, startLine, endLine, true
+}
+
+func readCodeLines(absPath, relPath string, startLine, endLine int) (string, error) {
+	fullPath := filepath.Join(absPath, relPath)
+	contentBytes, err := os.ReadFile(fullPath)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(contentBytes), "\n")
+
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	if startLine > len(lines) || startLine > endLine {
+		return "", nil
+	}
+
+	return strings.Join(lines[startLine-1:endLine], "\n"), nil
 }
 
 func getDBPath() (string, error) {
@@ -210,6 +262,16 @@ func SearchMemories(queryEmbedding []float32, category, cwd string, limit int, t
 			m.Similarity = sim
 		}
 
+		// ponytail: privacy preservation - if project category, load raw code content on the fly from local disk
+		if m.Category == "project" {
+			if relPath, start, end, ok := parseMetadataHeader(m.Content); ok {
+				code, err := readCodeLines(m.CWD, relPath, start, end)
+				if err == nil && code != "" {
+					m.Content = fmt.Sprintf("File: %s (Lines: %d-%d)\nContent:\n%s", relPath, start, end, code)
+				}
+			}
+		}
+
 		memories = append(memories, m)
 	}
 
@@ -253,6 +315,17 @@ func GetRecentMemories(cwd string, limit int) ([]Memory, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// ponytail: privacy preservation - load raw code content on the fly from local disk
+		if m.Category == "project" {
+			if relPath, start, end, ok := parseMetadataHeader(m.Content); ok {
+				code, err := readCodeLines(m.CWD, relPath, start, end)
+				if err == nil && code != "" {
+					m.Content = fmt.Sprintf("File: %s (Lines: %d-%d)\nContent:\n%s", relPath, start, end, code)
+				}
+			}
+		}
+
 		memories = append(memories, m)
 	}
 
@@ -349,5 +422,3 @@ func ListCodebases() ([]Codebase, error) {
 	}
 	return codebases, nil
 }
-
-
