@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "name": "load-past-memories",
+            "type": "command",
+            "command": "${extensionPath}${/}dist${/}session-start",
+            "timeout": 5000,
+            "description": "Loads past memories semantically relevant to the current project or workspace."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "name": "save-session-summary",
+            "type": "command",
+            "command": "${extensionPath}${/}dist${/}session-end",
+            "timeout": 15000,
+            "description": "Summarizes the current session's findings, decisions, and preferences, saving them as memory."
+          }
+        ]
+      }
+    ]
+  }
+}

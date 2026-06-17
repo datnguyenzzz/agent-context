@@ -1,0 +1,256 @@
+package splitter
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestSplitGoFileWithTypeSpecs(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "splitter-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// A highly complex Go file containing various declarations and structures
+	goCode := `package main
+
+import "fmt"
+
+const (
+	MaxRetries = 3
+	TimeoutSec = 10
+)
+
+var (
+	DefaultCategory = "personal"
+	Enabled         = true
+)
+
+// User defines a complex user profile
+type (
+	User struct {
+		ID        string
+		Name      string
+		Metadata  map[string]string
+		CreatedBy *User
+	}
+
+	// Service defines an interface for managing memories
+	Service interface {
+		Save(id string, data []byte) error
+		Search(query string) ([]string, error)
+	}
+)
+
+/*
+NewUser is a factory function that returns a new User pointer
+*/
+func NewUser(id, name string) *User {
+	return &User{
+		ID:   id,
+		Name: name,
+	}
+}
+
+// GetName is a simple value receiver method
+func (u User) GetName() string {
+	return u.Name
+}
+
+// UpdateName is a pointer receiver method that updates user's name
+func (u *User) UpdateName(newName string) {
+	u.Name = newName
+}
+
+func main() {
+	user := NewUser("1", "Alice")
+	fmt.Printf("Created user: %s\n", user.GetName())
+}
+`
+	filePath := filepath.Join(tmpDir, "main.go")
+	err = os.WriteFile(filePath, []byte(goCode), 0644)
+	if err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
+
+	chunks, err := SplitFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to split Go file: %v", err)
+	}
+
+	// We expect exactly 8 chunks:
+	// 0. const block
+	// 1. var block
+	// 2. User struct (TypeSpec 1)
+	// 3. Service interface (TypeSpec 2)
+	// 4. NewUser function (FuncDecl 1)
+	// 5. GetName method (FuncDecl 2)
+	// 6. UpdateName method (FuncDecl 3)
+	// 7. main function (FuncDecl 4)
+	if len(chunks) != 8 {
+		t.Fatalf("expected exactly 8 chunks, got %d", len(chunks))
+	}
+
+	expectedRanges := []struct {
+		start int
+		end   int
+	}{
+		{5, 8},   // const
+		{10, 13}, // var
+		{17, 22}, // User struct
+		{25, 28}, // Service interface
+		{31, 39}, // NewUser function with block comment
+		{41, 44}, // GetName method with line comment
+		{46, 49}, // UpdateName method with line comment
+		{51, 54}, // main function without comment
+	}
+
+	for i, expected := range expectedRanges {
+		actual := chunks[i]
+		if actual.StartLine != expected.start || actual.EndLine != expected.end {
+			t.Errorf("Chunk %d line mismatch: expected %d-%d, got %d-%d", i, expected.start, expected.end, actual.StartLine, actual.EndLine)
+		}
+	}
+}
+
+func TestAddOverlapUTF8Safe(t *testing.T) {
+	chunks := []Chunk{
+		{
+			FilePath:  "test.go",
+			Content:   "This is chunk number one containing standard text 🚀🌟",
+			StartLine: 1,
+			EndLine:   5,
+		},
+		{
+			FilePath:  "test.go",
+			Content:   "This is chunk number two.",
+			StartLine: 6,
+			EndLine:   10,
+		},
+	}
+
+	// Running overlap with size of 2 (2 runes: "🚀🌟")
+	overlapped := addOverlap(chunks, 2)
+
+	if len(overlapped) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(overlapped))
+	}
+
+	// Chunk 1 should remain unchanged
+	if overlapped[0].Content != chunks[0].Content {
+		t.Errorf("chunk 1 changed: %s", overlapped[0].Content)
+	}
+
+	// Chunk 2 should have "🚀🌟" prepended
+	expectedPrefix := "🚀🌟\n"
+	if !hasPrefix(overlapped[1].Content, expectedPrefix) {
+		t.Errorf("expected chunk 2 to start with %q, got: %q", expectedPrefix, overlapped[1].Content)
+	}
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func TestSplitYamlFile(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "splitter-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	yamlCode := `apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+spec:
+  replicas: 3
+`
+	filePath := filepath.Join(tmpDir, "manifest.yaml")
+	err = os.WriteFile(filePath, []byte(yamlCode), 0644)
+	if err != nil {
+		t.Fatalf("failed to write manifest.yaml: %v", err)
+	}
+
+	chunks, err := SplitFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to split YAML file: %v", err)
+	}
+
+	// We expect exactly 2 chunks due to the "---" separator
+	if len(chunks) != 2 {
+		t.Fatalf("expected exactly 2 chunks, got %d", len(chunks))
+	}
+
+	if chunks[0].StartLine != 1 || chunks[0].EndLine != 7 {
+		t.Errorf("chunk 0 range mismatch: expected 1-7, got %d-%d", chunks[0].StartLine, chunks[0].EndLine)
+	}
+
+	if chunks[1].StartLine != 10 || chunks[1].EndLine != 16 {
+		t.Errorf("chunk 1 range mismatch: expected 10-16, got %d-%d", chunks[1].StartLine, chunks[1].EndLine)
+	}
+}
+
+func TestSplitMarkdownFile(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "splitter-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mdCode := `# Title
+
+Some intro text.
+
+## Section 1
+
+Section 1 text here.
+
+### Subsection 1.1
+
+Deep subsection text.
+`
+	filePath := filepath.Join(tmpDir, "README.md")
+	err = os.WriteFile(filePath, []byte(mdCode), 0644)
+	if err != nil {
+		t.Fatalf("failed to write README.md: %v", err)
+	}
+
+	chunks, err := SplitFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to split Markdown file: %v", err)
+	}
+
+	// We expect exactly 3 chunks due to the headers:
+	// Chunk 0: Lines 1-4 (Title)
+	// Chunk 1: Lines 5-8 (Section 1)
+	// Chunk 2: Lines 9-12 (Subsection 1.1)
+	if len(chunks) != 3 {
+		t.Fatalf("expected exactly 3 chunks, got %d", len(chunks))
+	}
+
+	if chunks[0].StartLine != 1 || chunks[0].EndLine != 4 {
+		t.Errorf("chunk 0 range mismatch: expected 1-4, got %d-%d", chunks[0].StartLine, chunks[0].EndLine)
+	}
+
+	if chunks[1].StartLine != 5 || chunks[1].EndLine != 8 {
+		t.Errorf("chunk 1 range mismatch: expected 5-8, got %d-%d", chunks[1].StartLine, chunks[1].EndLine)
+	}
+
+	if chunks[2].StartLine != 9 || chunks[2].EndLine != 12 {
+		t.Errorf("chunk 2 range mismatch: expected 9-12, got %d-%d", chunks[2].StartLine, chunks[2].EndLine)
+	}
+}

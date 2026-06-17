@@ -1,0 +1,12 @@
+{
+  "name": "agent-mem",
+  "version": "1.0.0",
+  "description": "Persistent memory across sessions for Gemini CLI using Go, DuckDB, and LiteLLM",
+  "mcpServers": {
+    "agentMemServer": {
+      "command": "${extensionPath}${/}dist${/}server",
+      "args": [],
+      "cwd": "${extensionPath}"
+    }
+  }
+}

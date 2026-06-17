@@ -1,0 +1,16 @@
+# In: commands/index.toml
+# Invoked via: /index [path_to_directory]
+
+description = "Index a local directory/repository's files semantically into your DuckDB persistent memory store."
+
+prompt = """
+You are a Software Engineering Agent.
+
+A codebase indexing has been initiated for the target path using our Go-compiled DuckDB indexer.
+
+### 📋 Indexer Output:
+!{${extensionPath}/dist/indexer {{args}}}
+
+### 📋 Next Steps:
+Summarize what was indexed (number of files, types, total bytes) and confirm to the user that these file contents are now stored in their long-term persistent memory and will be loaded automatically on session start whenever they work in that directory.
+"""
