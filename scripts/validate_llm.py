@@ -33,7 +33,8 @@ def main():
     embed_url = f"{base_url}/embeddings"
     embed_payload = {
         "model": embed_model,
-        "input": "validate connection"
+        "input": "validate connection",
+        "dimensions": 1024,
     }
 
     print("⚙ Testing Embeddings Endpoint...")

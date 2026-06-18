@@ -1,5 +1,3 @@
-//go:build integration
-
 package scripts
 
 import (
@@ -136,7 +134,13 @@ func Test_TurboQuant(t *testing.T) {
 					continue
 				}
 
-				dequantized, err := tq.Dequantize(qv)
+				deser, err := tq.Deserialize(ser)
+				if err != nil {
+					fmt.Printf("    %d-bit: error deserializing: %v\n", bw, err)
+					continue
+				}
+
+				dequantized, err := tq.Dequantize(deser)
 				if err != nil {
 					fmt.Printf("    %d-bit: error dequantizing: %v\n", bw, err)
 					continue
@@ -154,6 +158,67 @@ func Test_TurboQuant(t *testing.T) {
 			fmt.Println()
 		}
 	}
+
+	// ── Scenario 5: Pre-Rotated Fast Quantized Search (Mathematical Correctness Verification) ──
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("  Scenario 5: Pre-Rotated Fast Quantized Search (Mathematical Check)")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
+	dim = 3072
+	tq, err := turboquant.NewTurboQuant(dim, 4, 42)
+	if err != nil {
+		t.Fatalf("failed to initialize TurboQuant: %v", err)
+	}
+
+	// Generate a query vector and a matching/noise vector
+	query := make([]float32, dim)
+	match := make([]float32, dim)
+	for i := 0; i < dim; i++ {
+		query[i] = float32(rng.NormFloat64())
+		match[i] = query[i] + float32(rng.NormFloat64()*0.1) // Add slight noise
+	}
+
+	// Quantize and serialize the match vector
+	qvMatch, err := tq.Quantize(match)
+	if err != nil {
+		t.Fatalf("failed to quantize match vector: %v", err)
+	}
+
+	// 1. Compute similarity using standard dequantize + CosineSimilarity loop
+	dequantized, err := tq.Dequantize(qvMatch)
+	if err != nil {
+		t.Fatalf("failed to dequantize match vector: %v", err)
+	}
+
+	standardSim, err := turboquant.CosineSimilarity(query, dequantized)
+	if err != nil {
+		t.Fatalf("failed to calculate standard similarity: %v", err)
+	}
+
+	// 2. Compute similarity using the fast pre-rotated scoring loop
+	preparedQuery, err := tq.PrepareQuery(query)
+	if err != nil {
+		t.Fatalf("failed to prepare query: %v", err)
+	}
+
+	fastSim := tq.ScorePrepared(preparedQuery, qvMatch)
+
+	fmt.Printf("  • Standard Similarity (Dequantize + CosSim):  %.6f\n", standardSim)
+	fmt.Printf("  • Optimized Similarity (Pre-rotated + Score):  %.6f\n", fastSim)
+
+	// Check if the fast scored value matches the standard one within float32 precision epsilon (1e-5)
+	diff := standardSim - fastSim
+	if diff < 0 {
+		diff = -diff
+	}
+
+	if diff > 1e-5 {
+		t.Errorf("fast scoring mathematical discrepancy too high: standard=%.6f, fast=%.6f, diff=%.6f", standardSim, fastSim, diff)
+	} else {
+		fmt.Println("  ✓ Mathematical verification passed successfully (difference < 1e-5)!")
+	}
+	fmt.Println()
 }
 
 // ─── helpers ───
