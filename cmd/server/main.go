@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"agent-mem/internal/callgraph"
 	"agent-mem/internal/db"
 	"agent-mem/internal/llm"
 	"agent-mem/internal/merkle"
@@ -23,6 +24,13 @@ import (
 
 type SearchArgs struct {
 	Query string `json:"query" jsonschema:"The semantic search query, detailed question, or coding concept to locate. Always pass the complete user question or detailed context instead of single keywords to ensure high-fidelity semantic matching."`
+}
+
+type CallGraphArgs struct {
+	FunctionName string  `json:"function_name" jsonschema:"The name of the target Go function/method to explore (e.g. 'SaveMemory' or 'SearchMemories')."`
+	CWD          *string `json:"cwd,omitempty" jsonschema:"Optional absolute directory path of the codebase to build the call graph from. Defaults to the current workspace."`
+	Direction    *string `json:"direction,omitempty" jsonschema:"Optional direction to traverse. Supported values: 'caller', 'callee', or 'both'. Defaults to 'both'."`
+	Depth        *int    `json:"depth,omitempty" jsonschema:"Optional maximum depth of call chain traversal. Defaults to 2."`
 }
 
 func startPeriodicIndexUpdate(index *turboquant.Index) {
@@ -137,6 +145,50 @@ func main() {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: formatted.String()},
+			},
+		}, nil, nil
+	})
+
+	// 2. Register search_call_graph tool
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_call_graph",
+		Description: "Explores the sequential call graph of a Go function (both callers and callees). IMPORTANT: You should first use 'search_memory' to find the target function name and LOC (line range) inside this repository, then use this tool to expand further to explore the sequential call chain (caller: who calls this, callee: what does this call, or both).",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args CallGraphArgs) (*mcp.CallToolResult, any, error) {
+		cwd := ""
+		if args.CWD != nil && *args.CWD != "" {
+			cwd = *args.CWD
+		} else {
+			cwd, _ = os.Getwd()
+		}
+
+		direction := "both"
+		if args.Direction != nil && *args.Direction != "" {
+			direction = *args.Direction
+		}
+
+		depth := 2
+		if args.Depth != nil {
+			depth = *args.Depth
+		}
+
+		var report string
+
+		// Attempt fast on-demand lazy database querying (O(1) memory & DB connections)
+		targetNode, err := db.GetCallNode(args.FunctionName)
+		if err == nil && targetNode != nil {
+			report = callgraph.GenerateOnDemandTreeReport(targetNode, direction, depth, db.GetCallees, db.GetCallers)
+		} else {
+			// Resilient Fallback: recursively walk and build the graph from disk on the fly
+			cg, err := callgraph.BuildCallGraph(cwd)
+			if err != nil {
+				return nil, nil, err
+			}
+			report = cg.GenerateTreeReport(args.FunctionName, direction, depth)
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: report},
 			},
 		}, nil, nil
 	})

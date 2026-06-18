@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-mem/internal/callgraph"
 	"agent-mem/internal/turboquant"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -150,6 +151,29 @@ func InitDatabase() error {
 			root_hash VARCHAR NOT NULL,
 			tree_json TEXT NOT NULL,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// ponytail: create call_nodes and call_edges tables for fast, incremental AST-based call graph indexing
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS call_nodes (
+			name VARCHAR NOT NULL,
+			file_path VARCHAR NOT NULL,
+			start_line INTEGER NOT NULL,
+			end_line INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS call_edges (
+			caller VARCHAR NOT NULL,
+			callee VARCHAR NOT NULL
 		)
 	`)
 	return err
@@ -430,4 +454,261 @@ func ListCodebases() ([]Codebase, error) {
 		codebases = append(codebases, c)
 	}
 	return codebases, nil
+}
+
+// SaveCallGraph writes the parsed call graph nodes and edges of a single file to DuckDB
+func SaveCallGraph(filePath string, nodes []*callgraph.Node, edges []callgraph.Edge) error {
+	db, err := Open()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Begin a transaction to ensure atomic updates
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Delete existing edges of caller functions declared in this file
+	// We first query all function names declared in this file, then delete those callers
+	queryGetFuncs := "SELECT name FROM call_nodes WHERE file_path = $1"
+	rows, err := tx.Query(queryGetFuncs, filePath)
+	if err == nil {
+		var funcs []any
+		var placeholders []string
+		idx := 1
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err == nil {
+				funcs = append(funcs, name)
+				placeholders = append(placeholders, fmt.Sprintf("$%d", idx))
+				idx++
+			}
+		}
+		rows.Close()
+
+		if len(funcs) > 0 {
+			queryDelEdges := fmt.Sprintf("DELETE FROM call_edges WHERE caller IN (%s)", strings.Join(placeholders, ", "))
+			_, _ = tx.Exec(queryDelEdges, funcs...)
+		}
+	}
+
+	// 2. Delete existing nodes declared in this file
+	_, err = tx.Exec("DELETE FROM call_nodes WHERE file_path = $1", filePath)
+	if err != nil {
+		return err
+	}
+
+	// 3. Insert new nodes
+	if len(nodes) > 0 {
+		stmtNode, err := tx.Prepare("INSERT INTO call_nodes (name, file_path, start_line, end_line) VALUES ($1, $2, $3, $4)")
+		if err != nil {
+			return err
+		}
+		defer stmtNode.Close()
+
+		for _, n := range nodes {
+			_, err = stmtNode.Exec(n.Name, n.FilePath, n.StartLine, n.EndLine)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// 4. Insert new edges
+	if len(edges) > 0 {
+		stmtEdge, err := tx.Prepare("INSERT INTO call_edges (caller, callee) VALUES ($1, $2)")
+		if err != nil {
+			return err
+		}
+		defer stmtEdge.Close()
+
+		for _, e := range edges {
+			_, err = stmtEdge.Exec(e.Caller, e.Callee)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// DeleteCallGraph removes all nodes and edges declared in a specific file
+func DeleteCallGraph(filePath string) error {
+	db, err := Open()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Delete edges of caller functions declared in this file
+	queryGetFuncs := "SELECT name FROM call_nodes WHERE file_path = $1"
+	rows, err := tx.Query(queryGetFuncs, filePath)
+	if err == nil {
+		var funcs []any
+		var placeholders []string
+		idx := 1
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err == nil {
+				funcs = append(funcs, name)
+				placeholders = append(placeholders, fmt.Sprintf("$%d", idx))
+				idx++
+			}
+		}
+		rows.Close()
+
+		if len(funcs) > 0 {
+			queryDelEdges := fmt.Sprintf("DELETE FROM call_edges WHERE caller IN (%s)", strings.Join(placeholders, ", "))
+			_, _ = tx.Exec(queryDelEdges, funcs...)
+		}
+	}
+
+	// 2. Delete nodes
+	_, err = tx.Exec("DELETE FROM call_nodes WHERE file_path = $1", filePath)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// LoadCallGraph loads all pre-built nodes and edges from DuckDB to reconstruct CallGraph
+func LoadCallGraph() (*callgraph.CallGraph, error) {
+	db, err := Open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// 1. Load Nodes
+	rowsNodes, err := db.Query("SELECT name, file_path, start_line, end_line FROM call_nodes")
+	if err != nil {
+		return nil, err
+	}
+	defer rowsNodes.Close()
+
+	nodes := make(map[string]*callgraph.Node)
+	for rowsNodes.Next() {
+		var n callgraph.Node
+		err := rowsNodes.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine)
+		if err != nil {
+			return nil, err
+		}
+		nodes[n.Name] = &n
+	}
+
+	// 2. Load Edges
+	rowsEdges, err := db.Query("SELECT caller, callee FROM call_edges")
+	if err != nil {
+		return nil, err
+	}
+	defer rowsEdges.Close()
+
+	var edges []callgraph.Edge
+	for rowsEdges.Next() {
+		var e callgraph.Edge
+		err := rowsEdges.Scan(&e.Caller, &e.Callee)
+		if err != nil {
+			return nil, err
+		}
+		edges = append(edges, e)
+	}
+
+	return &callgraph.CallGraph{
+		Nodes: nodes,
+		Edges: edges,
+	}, nil
+}
+
+// GetCallNode retrieves metadata for a single function node by name or method suffix
+func GetCallNode(funcName string) (*callgraph.Node, error) {
+	db, err := Open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT name, file_path, start_line, end_line 
+		FROM call_nodes 
+		WHERE name = $1 OR name LIKE '%' || $2
+		LIMIT 1
+	`
+	var n callgraph.Node
+	err = db.QueryRow(query, funcName, "."+funcName).Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// GetCallees retrieves all callee nodes and their metadata for a given caller in a single JOIN query
+func GetCallees(callerName string) ([]*callgraph.Node, error) {
+	db, err := Open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT DISTINCT n.name, n.file_path, n.start_line, n.end_line
+		FROM call_edges e
+		JOIN call_nodes n ON e.callee = n.name OR n.name LIKE '%' || e.callee
+		WHERE e.caller = $1
+	`
+	rows, err := db.Query(query, callerName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []*callgraph.Node
+	for rows.Next() {
+		var n callgraph.Node
+		if err := rows.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
+			nodes = append(nodes, &n)
+		}
+	}
+	return nodes, nil
+}
+
+// GetCallers retrieves all caller nodes and their metadata for a given callee in a single JOIN query
+func GetCallers(calleeName string) ([]*callgraph.Node, error) {
+	db, err := Open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// Handle both exact match or method suffix matching for callee
+	query := `
+		SELECT DISTINCT n.name, n.file_path, n.start_line, n.end_line
+		FROM call_edges e
+		JOIN call_nodes n ON e.caller = n.name
+		WHERE e.callee = $1 OR $1 LIKE '%' || e.callee
+	`
+	rows, err := db.Query(query, calleeName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []*callgraph.Node
+	for rows.Next() {
+		var n callgraph.Node
+		if err := rows.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
+			nodes = append(nodes, &n)
+		}
+	}
+	return nodes, nil
 }

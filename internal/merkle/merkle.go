@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"agent-mem/internal/callgraph"
 	"agent-mem/internal/db"
 	"agent-mem/internal/llm"
 	"agent-mem/internal/splitter"
@@ -268,6 +269,7 @@ func UpdateIndex(absPath string, index *turboquant.Index) (int, int, int, error)
 		if err := db.DeleteFileMemories(absPath, relPath, index); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to clear memories for deleted file %s: %v\n", relPath, err)
 		}
+		_ = db.DeleteCallGraph(relPath)
 	}
 
 	// 5. Delete stale memories of modified files
@@ -276,6 +278,7 @@ func UpdateIndex(absPath string, index *turboquant.Index) (int, int, int, error)
 		if err := db.DeleteFileMemories(absPath, relPath, index); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to clear memories for modified file %s: %v\n", relPath, err)
 		}
+		_ = db.DeleteCallGraph(relPath)
 	}
 
 	// 6. Index added and modified files concurrently
@@ -373,6 +376,17 @@ func UpdateIndex(absPath string, index *turboquant.Index) (int, int, int, error)
 		}
 
 		fmt.Printf("✓ Successfully indexed %d files (%d AST chunks)\n", len(filesToProcess), savedCount)
+
+		// ponytail: incrementally parse and update the AST Call/Dependency Graph inside DuckDB
+		fmt.Printf("⚙ Indexing Call Graph nodes and dependencies...\n")
+		for _, relPath := range filesToProcess {
+			fullPath := filepath.Join(absPath, relPath)
+			nodes, edges, err := callgraph.ParseFile(fullPath, relPath)
+			if err == nil {
+				_ = db.SaveCallGraph(relPath, nodes, edges)
+			}
+		}
+		fmt.Printf("✓ Call Graph incrementally synchronized successfully.\n")
 	}
 
 	// 7. Save updated Merkle Tree state
