@@ -93,7 +93,9 @@ graph TD
     end
 
     %% Indexing Flow
-    idx_cli -->|1. Index code| merkle
+    idx_cli -.->|Index code| merkle
+    mcp_srv -.->|Periodically refresh the indexed code| merkle
+    
     code_files -.->|Scan Directory| merkle
     merkle -->|2. Split Code Files| splitter
     merkle -->|3. Get Embeddings| llm
