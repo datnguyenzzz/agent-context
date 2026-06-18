@@ -95,7 +95,7 @@ graph TD
     %% Indexing Flow
     idx_cli -.->|Index code| merkle
     mcp_srv -.->|Periodically refresh the indexed code| merkle
-    
+
     code_files -.->|Scan Directory| merkle
     merkle -->|2. Split Code Files| splitter
     merkle -->|3. Get Embeddings| llm
@@ -122,25 +122,29 @@ graph TD
 
 ## 📊 TurboQuant Vector Compression Benchmark
 
+> See [detailed](https://github.com/datnguyenzzz/agent-context/blob/main/scripts/benchmark_compression_test.go) 
+
 ```
 ================================================================================
+        📊  TURBOQUANT VECTOR COMPRESSION BENCHMARK SUITE  📊                 
+================================================================================
 
-📁 Targets: Aggregated Index (across 7 codebases)
-   • Scanned Files: 5206 | Total Semantic Chunks: 17328 | Dimensions: 1536
-   • Total Lines of Code (LOC): 905828 | DuckDB Metadata Size: 0.76 MiB
+📁 Targets: Aggregated Index (across 11 codebases)
+   • Scanned Files: 18_017 | Total Semantic Chunks: 141_210 | Dimensions: 1536
+   • Total Lines of Code (LOC): 3_436_130 | DuckDB Metadata Size: 0.76 MiB
   -------------------------------------------------------------------------------- 
    │ Data Footprint Type            │ Footprint Size │ Comp. Ratio │ Savings    │
    ├────────────────────────────────┼────────────────┼─────────────┼────────────┤
-   │ [1] Standard Float32[] RAM     │     101.53 MiB │      1.0x   │     0.0%   │
-   │ [2] TurboQuant In-Memory Map   │      12.97 MiB │      7.8x   │    87.2%   │
-   │ [3] TurboQuant On-Disk .tqv    │       6.94 MiB │     14.6x   │    93.2%   │
+   │ [1] Standard Float32[] RAM     │     827.40 MiB │      1.0x   │     0.0%   │
+   │ [2] TurboQuant In-Memory Map   │     105.85 MiB │      7.8x   │    87.2%   │
+   │ [3] TurboQuant On-Disk .tqv    │      56.81 MiB │     14.6x   │    93.1%   │
    └────────────────────────────────┴────────────────┴─────────────┴────────────┘
 
    📈 Visual Storage Footprint Comparison (Bar Scale):
 
-   Standard Float32[] RAM   : [████████████████████████████████████████] (101.53 MiB)
-   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (12.97 MiB) — 12x savings!
-   TurboQuant On-Disk .tqv  : [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (6.94 MiB) — Compact file!
+   Standard Float32[] RAM   : [████████████████████████████████████████] (827.40 MiB)
+   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (105.85 MiB) 
+   TurboQuant On-Disk .tqv  : [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (56.81 MiB)
 
 ================================================================================
 ```

@@ -296,8 +296,8 @@ func Test_compression_rate(t *testing.T) {
 	tqDiskBar := drawBar(results.TqDiskSize/maxKB, barWidth)
 
 	fmt.Printf("   Standard Float32[] RAM   : [%s] (%.2f MiB)\n", origBar, results.OrigSize/1024.0)
-	fmt.Printf("   TurboQuant In-Memory Map : [%s] (%.2f MiB) — 12x savings!\n", tqMemBar, results.TqMemSize/1024.0)
-	fmt.Printf("   TurboQuant On-Disk .tqv  : [%s] (%.2f MiB) — Compact file!\n", tqDiskBar, results.TqDiskSize/1024.0)
+	fmt.Printf("   TurboQuant In-Memory Map : [%s] (%.2f MiB)\n", tqMemBar, results.TqMemSize/1024.0)
+	fmt.Printf("   TurboQuant On-Disk .tqv  : [%s] (%.2f MiB)\n", tqDiskBar, results.TqDiskSize/1024.0)
 	fmt.Println()
 	fmt.Println("================================================================================")
 }
