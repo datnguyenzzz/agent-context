@@ -99,20 +99,17 @@ graph TD
     merkle -->|3. Get Embeddings| llm
     llm -->|4. REST API| litellm
     merkle -->|5. Save Metadata Only| db
-    merkle -->|6. Add Vectors| tq
+    merkle -->|6. Store Vectors| tq
     merkle ==>|7. Incremental Call Graph Parse| callgraph
     callgraph ==>|8. Save Nodes & Edges| db
 
     %% MCP Query Flow
     cli -->|1. Call search_memory| mcp_srv
-    mcp_srv -->|2. Get Query Embedding| llm
-    mcp_srv -->|3. Index.Search| tq
-    tq -->|4. Top Candidate IDs| mcp_srv
-    mcp_srv -->|5. Fetch Metadata Only| db
-    mcp_srv ==>|6. DYNAMICALLY READ CODE LINES<br/>FOR MAXIMUM PRIVACY| code_files
-    mcp_srv -->|7. Return Combined Context| cli
+    mcp_srv -->|2. Index.Search| tq
+    mcp_srv -->|3. Fetch Metadata Only| db
+    mcp_srv ==>|4. DYNAMICALLY READ CODE LINES<br/>FOR PRIVACY| code_files
+    mcp_srv -->|5. Return Combined Context| cli
     cli ==>|Call search_call_graph| mcp_srv
-    mcp_srv ==>|Load Pre-built Call Graph| db
 
     %% Persistence
     db -->|Read/Write SQL| duckdb_file
