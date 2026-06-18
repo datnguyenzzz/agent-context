@@ -1,64 +1,54 @@
-# Gemini Persistent Memory & Codebase Indexer Extension
+# Gemini Codebase Indexer With Persist Memory Extension
 
-A model-agnostic Gemini CLI extension written in **Go** that provides persistent, ultra-fast local codebase indexing, and semantic search. Powered by a decoupled storage system featuring **DuckDB** for metadata and a dedicated **TurboQuant** binary file index for 12x-compressed, 3,000x-accelerated vector similarity search.
-
----
-
-## 🚀 Core Capabilities
-
-### 1. Merkle Tree-Based Incremental Indexing
-* **Cryptographic Diffing:** Builds SHA-256 hashes of local codebase states. On subsequent scans, it diffs the new tree against the old state to isolate added, modified, and deleted files in milliseconds.
-* **Redundant-Free Vectorization:** Skips calling the LLM embedding API for unchanged files.
-* **Automatic Vector Compaction:** Automatically purges stale vector chunks of deleted/modified files from the binary vector index file during sync runs.
-
-### 2. Privacy-Preserving Vector-Only Indexing
-* **No Code Stored in DB:** Codebase file contents are **never** saved to DuckDB or disk index files. Only lightweight metadata headers are persisted (`File: <path> (Lines: <start>-<end>)`).
-* **On-Demand Local Loading:** During search/retrieval, the database layer parses metadata headers and **reads the code lines directly from your local disk on the fly**, streaming them dynamically to the agent.
-
-### 3. Decoupled In-Memory Vector Storage
-* **Metadata-Only SQL Store:** DuckDB is utilized strictly for fast metadata queries (ID, content path, CWD) and subdirectory path-resolution.
-* **Quantized Vector Index (.tqv)**: Quantized vectors are kept in a dedicated, high-performance binary index file (`~/.gemini/agent-mem.tqv`) using ultra-compression
-
-### 4. Incremental Database-Backed Call & Dependency Graph
-* **Multi-Language Parsing:** Recursively parses Go ASTs, Terraform blocks (module and resource definitions), and YAML task keys (CI/CD pipeline steps).
-* **Relational Storage in DuckDB:** Persists parsed function declarations and calling relationships into relational `call_nodes` and `call_edges` tables.
-* **Automatic Merkle Sync:** Synchronizes with Merkle tree indexing runs. When a file is modified/deleted, its database nodes and edges are transactionally purged, and single-file parsed updates are committed instantly.
-
-> ⚠️ **Note:** Currently, the codebase indexer and call graph builder support indexing `.go`, `.tf`, and `.yaml` / `.yml` files.
+A model-agnostic Gemini CLI extension and MCP server in **Go** providing local codebase indexing and semantic search. It uses **DuckDB** for metadata and a quantized **TurboQuant** vector index for 12x-compressed, 3000x-accelerated similarity search.
 
 ---
 
-## Compression rate 
+## ✨ Key Features
 
+*   **Merkle Tree Incremental Sync:** Computes directory tree diffs to index/re-embed only added or modified files (supporting `.go`, `.tf`, and `.yaml`/`.yml`).
+*   **Privacy-Preserving Vector Storage:** No code is stored in the database. Only metadata headers are saved; raw code is read directly from local disk on demand during search.
+*   **AST Call & Dependency Graph:** Extracts call nodes and edges incrementally into DuckDB, allowing fast traversal and ASCII call-tree generation.
+
+---
+
+## 🛠 Exposed MCP Tools
+
+1.  **`search_memory`**: Semantic search across indexed workspace code blocks.
+2.  **`search_call_graph`**: Explores bidirectional call chains (caller/callee) for functions, Terraform blocks, or YAML tasks.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Build and Install
+```bash
+make install
 ```
-================================================================================
-        📊  TURBOQUANT VECTOR COMPRESSION BENCHMARK SUITE  📊                 
-================================================================================
 
-   📁 Targets: Aggregated Index (across 5 codebases)
-   • Scanned Files: 5100 | Total Semantic Chunks: 16961 | Dimensions: 1536
-   ------------------------------------------------------------------------------
-   │ Data Footprint Type            │ Footprint Size │ Comp. Ratio │ Savings    │
-   ├────────────────────────────────┼────────────────┼─────────────┼────────────┤
-   │ [1] Standard Float32[] RAM     │  101766.00 KB  │      1.0x   │     0.0%   │
-   │ [2] TurboQuant In-Memory Map   │   12998.86 KB  │      7.8x   │    87.2%   │
-   │ [3] TurboQuant On-Disk .tqv    │   13383.31 KB  │      7.6x   │    86.8%   │
-   └────────────────────────────────┴────────────────┴─────────────┴────────────┘
-
-   📈 Visual Storage Footprint Comparison (Bar Scale):
-
-   Standard Float32[] RAM   : [████████████████████████████████████████] (101766.0 KB)
-   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (12998.9 KB) — 12x savings!
-   TurboQuant On-Disk .tqv  : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (13383.3 KB) — Compact file!
-
-================================================================================
+### 2. Index a Codebase
+```bash
+make index DIR=/path/to/your/codebase
 ```
+
+### 3. Run Tests
+```bash
+make test         # Run unit tests
+make test-all     # Run all tests & database self-checks
+```
+
+---
+
+## ⚙ Configuration
+
+Configure via environment variables:
+*   `LITELLM_BASE_URL`: API base URL (Default: `http://localhost:36253/v1`)
+*   `LITELLM_EMBEDDING_MODEL`: Embedding model (Default: `gemini-embedding-001`)
+*   `LITELLM_CHAT_MODEL`: Chat model (Default: `gpt-5`)
 
 ---
 
 ## 📐 System Architecture
-
-Below is the conceptual component diagram of the decoupled indexing, search pipeline, and storage layers:
 
 ```mermaid
 graph TD
@@ -129,46 +119,28 @@ graph TD
 
 ---
 
-## 🛠 Exposed MCP Tools
+## 📊 TurboQuant Vector Compression Benchmark
 
-This extension registers and exposes two highly specialized MCP tools to calling agents:
+```
+================================================================================
+        📊  TURBOQUANT VECTOR COMPRESSION BENCHMARK SUITE  📊                 
+================================================================================
 
-1. **`search_memory`**: **(MANDATORY FIRST-USE DIRECTIVE)**
-   * **Always search first**: Agents **MUST** always use this tool first to find codebase context, files, folders, local structures, functions, or configurations before attempting to read local files, list directories, or run other commands.
-   * **Semantic Search**: Performs rapid semantic similarity search across segments of indexed codebase files in the current workspace.
-   * **Privacy**: Codebase search segments are loaded dynamically on the fly from the local disk to preserve privacy.
+   📁 Targets: Aggregated Index (across 5 codebases)
+   • Scanned Files: 5100 | Total Semantic Chunks: 16961 | Dimensions: 1536
+   ------------------------------------------------------------------------------
+   │ Data Footprint Type            │ Footprint Size │ Comp. Ratio │ Savings    │
+   ├────────────────────────────────┼────────────────┼─────────────┼────────────┤
+   │ [1] Standard Float32[] RAM     │  101766.00 KB  │      1.0x   │     0.0%   │
+   │ [2] TurboQuant In-Memory Map   │   12998.86 KB  │      7.8x   │    87.2%   │
+   │ [3] TurboQuant On-Disk .tqv    │   13383.31 KB  │      7.6x   │    86.8%   │
+   └────────────────────────────────┴────────────────┴─────────────┴────────────┘
 
-2. **`search_call_graph`**:
-   * **Explore Call Chains**: Analyzes AST (Abstract Syntax Tree) recursively on demand to build and explore the sequential call graph of a function (both callers and callees) with custom depth.
-   * **Workflow Integration**: The agent first uses `search_memory` to locate the target function name and LOC (line range) inside this repository, then uses `search_call_graph` to expand further and traverse the call chain (caller: who calls this, callee: what does this call, or both).
+   📈 Visual Storage Footprint Comparison (Bar Scale):
 
----
+   Standard Float32[] RAM   : [████████████████████████████████████████] (101766.0 KB)
+   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (12998.9 KB) — 12x savings!
+   TurboQuant On-Disk .tqv  : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (13383.3 KB) — Compact file!
 
-## 🔧 Installation & Setup
-
-1. **Build and Link (Install):**
-   ```bash
-   make install
-   ```
-
-2. **Run Indexer:**
-   Index a custom target repository path:
-   ```bash
-   make index DIR=/path/to/your/codebase
-   ```
-
-3. **Configuration Settings:**
-   Configure via standard CLI options or environment variables:
-   * **Base URL:** `LITELLM_BASE_URL` (Defaults to `http://localhost:4000/v1`)
-   * **Embedding Model:** `LITELLM_EMBEDDING_MODEL` (Defaults to `text-embedding-3-small`)
-   * **Chat Model:** `LITELLM_CHAT_MODEL` (Defaults to `gpt-4o-mini`)
-
----
-
-## 🧪 Testing
-
-```bash
-make test             # Run package unit tests (including Index & Storage tests)
-make test-integration # Run live, end-to-end integration tests explicitly
-make test-all         # Run unit tests, integration tests, and database self-checks
+================================================================================
 ```
