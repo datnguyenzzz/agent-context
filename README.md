@@ -125,24 +125,23 @@ graph TD
 
 ```
 ================================================================================
-        📊  TURBOQUANT VECTOR COMPRESSION BENCHMARK SUITE  📊                 
-================================================================================
 
-   📁 Targets: Aggregated Index (across 5 codebases)
-   • Scanned Files: 5100 | Total Semantic Chunks: 16961 | Dimensions: 1536
-   ------------------------------------------------------------------------------
+📁 Targets: Aggregated Index (across 7 codebases)
+   • Scanned Files: 5206 | Total Semantic Chunks: 17328 | Dimensions: 1536
+   • Total Lines of Code (LOC): 905828 | DuckDB Metadata Size: 0.76 MiB
+  -------------------------------------------------------------------------------- 
    │ Data Footprint Type            │ Footprint Size │ Comp. Ratio │ Savings    │
    ├────────────────────────────────┼────────────────┼─────────────┼────────────┤
-   │ [1] Standard Float32[] RAM     │  101766.00 KB  │      1.0x   │     0.0%   │
-   │ [2] TurboQuant In-Memory Map   │   12998.86 KB  │      7.8x   │    87.2%   │
-   │ [3] TurboQuant On-Disk .tqv    │   13383.31 KB  │      7.6x   │    86.8%   │
+   │ [1] Standard Float32[] RAM     │     101.53 MiB │      1.0x   │     0.0%   │
+   │ [2] TurboQuant In-Memory Map   │      12.97 MiB │      7.8x   │    87.2%   │
+   │ [3] TurboQuant On-Disk .tqv    │       6.94 MiB │     14.6x   │    93.2%   │
    └────────────────────────────────┴────────────────┴─────────────┴────────────┘
 
    📈 Visual Storage Footprint Comparison (Bar Scale):
 
-   Standard Float32[] RAM   : [████████████████████████████████████████] (101766.0 KB)
-   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (12998.9 KB) — 12x savings!
-   TurboQuant On-Disk .tqv  : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (13383.3 KB) — Compact file!
+   Standard Float32[] RAM   : [████████████████████████████████████████] (101.53 MiB)
+   TurboQuant In-Memory Map : [█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (12.97 MiB) — 12x savings!
+   TurboQuant On-Disk .tqv  : [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] (6.94 MiB) — Compact file!
 
 ================================================================================
 ```

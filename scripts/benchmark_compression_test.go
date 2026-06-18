@@ -102,6 +102,7 @@ func Test_compression_rate(t *testing.T) {
 	activeCount := 0
 	totalFiles := 0
 	totalChunks := 0
+	totalLOC := 0
 
 	for _, path := range codebases {
 		if strings.Contains(path, "placeholder") {
@@ -125,6 +126,13 @@ func Test_compression_rate(t *testing.T) {
 		totalFiles += len(files)
 
 		for _, fPath := range files {
+			// Read file to count LOC
+			contentBytes, err := os.ReadFile(fPath)
+			if err == nil {
+				lines := strings.Split(string(contentBytes), "\n")
+				totalLOC += len(lines)
+			}
+
 			chunks, err := splitter.SplitFile(fPath)
 			if err != nil {
 				continue
@@ -143,7 +151,7 @@ func Test_compression_rate(t *testing.T) {
 		}
 	}
 
-	var results struct {
+	type resultData struct {
 		Title      string
 		Files      int
 		Chunks     int
@@ -151,6 +159,17 @@ func Test_compression_rate(t *testing.T) {
 		TqMemSize  float64 // KB
 		TqDiskSize float64 // KB
 		SavedRatio float64
+		DuckDBSize float64 // KB
+		TotalLOC   int
+	}
+	var results resultData
+
+	var duckDBSizeKB float64
+	if home, err := os.UserHomeDir(); err == nil {
+		dbPath := filepath.Join(home, ".gemini", "agent-mem.db")
+		if fi, err := os.Stat(dbPath); err == nil {
+			duckDBSizeKB = float64(fi.Size()) / 1024.0
+		}
 	}
 
 	if activeCount > 0 {
@@ -180,15 +199,7 @@ func Test_compression_rate(t *testing.T) {
 			savedRatio = (1.0 - (tqMemKB / origKB)) * 100
 		}
 
-		results = struct {
-			Title      string
-			Files      int
-			Chunks     int
-			OrigSize   float64
-			TqMemSize  float64
-			TqDiskSize float64
-			SavedRatio float64
-		}{
+		results = resultData{
 			Title:      fmt.Sprintf("Aggregated Index (across %d codebases)", activeCount),
 			Files:      totalFiles,
 			Chunks:     totalChunks,
@@ -196,6 +207,8 @@ func Test_compression_rate(t *testing.T) {
 			TqMemSize:  tqMemKB,
 			TqDiskSize: tqDiskKB,
 			SavedRatio: savedRatio,
+			DuckDBSize: duckDBSizeKB,
+			TotalLOC:   totalLOC,
 		}
 	} else {
 		fmt.Println("  [NOTICE] No active codebases were evaluated. Please modify the placeholder paths")
@@ -243,15 +256,7 @@ func Test_compression_rate(t *testing.T) {
 		tqDiskKB := float64(actualDiskBytes) / 1024.0
 		savedRatio := (1.0 - (tqMemKB / origKB)) * 100
 
-		results = struct {
-			Title      string
-			Files      int
-			Chunks     int
-			OrigSize   float64
-			TqMemSize  float64
-			TqDiskSize float64
-			SavedRatio float64
-		}{
+		results = resultData{
 			Title:      "Simulated (1,000 codebase chunks)",
 			Files:      50,
 			Chunks:     simChunks,
@@ -259,17 +264,20 @@ func Test_compression_rate(t *testing.T) {
 			TqMemSize:  tqMemKB,
 			TqDiskSize: tqDiskKB,
 			SavedRatio: savedRatio,
+			DuckDBSize: duckDBSizeKB,
+			TotalLOC:   0,
 		}
 	}
 
 	fmt.Printf("📁 Targets: %s\n", results.Title)
 	fmt.Printf("   • Scanned Files: %d | Total Semantic Chunks: %d | Dimensions: %d\n", results.Files, results.Chunks, dim)
+	fmt.Printf("   • Total Lines of Code (LOC): %d | DuckDB Metadata Size: %.2f MiB\n", results.TotalLOC, results.DuckDBSize/1024.0)
 	fmt.Println("  -------------------------------------------------------------------------------- ")
 	fmt.Printf("   │ Data Footprint Type            │ Footprint Size │ Comp. Ratio │ Savings    │\n")
 	fmt.Println("   ├────────────────────────────────┼────────────────┼─────────────┼────────────┤")
-	fmt.Printf("   │ [1] Standard Float32[] RAM     │ %10.2f KB │      1.0x   │     0.0%%   │\n", results.OrigSize)
-	fmt.Printf("   │ [2] TurboQuant In-Memory Map   │ %10.2f KB │ %8.1fx   │ %8.1f%%   │\n", results.TqMemSize, results.OrigSize/results.TqMemSize, results.SavedRatio)
-	fmt.Printf("   │ [3] TurboQuant On-Disk .tqv    │ %10.2f KB │ %8.1fx   │ %8.1f%%   │\n", results.TqDiskSize, results.OrigSize/results.TqDiskSize, (1.0-(results.TqDiskSize/results.OrigSize))*100)
+	fmt.Printf("   │ [1] Standard Float32[] RAM     │ %10.2f MiB │      1.0x   │     0.0%%   │\n", results.OrigSize/1024.0)
+	fmt.Printf("   │ [2] TurboQuant In-Memory Map   │ %10.2f MiB │ %8.1fx   │ %8.1f%%   │\n", results.TqMemSize/1024.0, results.OrigSize/results.TqMemSize, results.SavedRatio)
+	fmt.Printf("   │ [3] TurboQuant On-Disk .tqv    │ %10.2f MiB │ %8.1fx   │ %8.1f%%   │\n", results.TqDiskSize/1024.0, results.OrigSize/results.TqDiskSize, (1.0-(results.TqDiskSize/results.OrigSize))*100)
 	fmt.Println("   └────────────────────────────────┴────────────────┴─────────────┴────────────┘")
 	fmt.Println()
 
@@ -287,9 +295,9 @@ func Test_compression_rate(t *testing.T) {
 	tqMemBar := drawBar(results.TqMemSize/maxKB, barWidth)
 	tqDiskBar := drawBar(results.TqDiskSize/maxKB, barWidth)
 
-	fmt.Printf("   Standard Float32[] RAM   : [%s] (%.1f KB)\n", origBar, results.OrigSize)
-	fmt.Printf("   TurboQuant In-Memory Map : [%s] (%.1f KB) — 12x savings!\n", tqMemBar, results.TqMemSize)
-	fmt.Printf("   TurboQuant On-Disk .tqv  : [%s] (%.1f KB) — Compact file!\n", tqDiskBar, results.TqDiskSize)
+	fmt.Printf("   Standard Float32[] RAM   : [%s] (%.2f MiB)\n", origBar, results.OrigSize/1024.0)
+	fmt.Printf("   TurboQuant In-Memory Map : [%s] (%.2f MiB) — 12x savings!\n", tqMemBar, results.TqMemSize/1024.0)
+	fmt.Printf("   TurboQuant On-Disk .tqv  : [%s] (%.2f MiB) — Compact file!\n", tqDiskBar, results.TqDiskSize/1024.0)
 	fmt.Println()
 	fmt.Println("================================================================================")
 }

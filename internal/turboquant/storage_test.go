@@ -1,6 +1,7 @@
 package turboquant
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -102,3 +103,70 @@ func TestStorage_LoadSave(t *testing.T) {
 		}
 	}
 }
+
+func TestStorage_BackwardCompatibility(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "turboquant-storage-compat-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	filePath := filepath.Join(tmpDir, "v1_storage.tqlm")
+
+	dim := 16
+	bw := 4
+	tq, err := NewTurboQuant(dim, bw, 42)
+	if err != nil {
+		t.Fatalf("failed to initialize TurboQuant: %v", err)
+	}
+
+	storage := NewStorage(dim, bw)
+
+	// Create raw version 1 file manually
+	f, err := os.Create(filePath)
+	if err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// 16-byte uncompressed header
+	header := make([]byte, 16)
+	copy(header[0:4], []byte("TQLM"))
+	binary.LittleEndian.PutUint32(header[4:8], 1) // version 1 (uncompressed)
+	binary.LittleEndian.PutUint32(header[8:12], 1) // 1 vector
+	binary.LittleEndian.PutUint32(header[12:16], uint32(storage.bytesPerVector))
+	f.Write(header)
+
+	// 5-byte metadata
+	meta := make([]byte, 5)
+	binary.LittleEndian.PutUint32(meta[0:4], uint32(dim))
+	meta[4] = uint8(bw)
+	f.Write(meta)
+
+	// Vector record: 36 bytes id + serialized bytes
+	v1 := make([]float32, dim)
+	v1[0] = 1.0
+	qv1, _ := tq.Quantize(v1)
+	ser1, _ := tq.Serialize(qv1)
+
+	recordBuf := make([]byte, storage.bytesPerVector)
+	idBytes := []byte("id-v1")
+	copy(recordBuf[0:36], idBytes)
+	copy(recordBuf[36:], ser1)
+	f.Write(recordBuf)
+	f.Close()
+
+	// Now try loading using storage.Load
+	loaded, err := storage.Load(filePath, tq)
+	if err != nil {
+		t.Fatalf("failed to load version 1 uncompressed file: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 loaded vector, got %d", len(loaded))
+	}
+
+	if _, ok := loaded["id-v1"]; !ok {
+		t.Errorf("expected id-v1 to be loaded successfully from v1 format")
+	}
+}
+
