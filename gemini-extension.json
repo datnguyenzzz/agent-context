@@ -1,9 +1,9 @@
 {
-  "name": "agent-mem",
+  "name": "agent-context",
   "version": "1.0.0",
-  "description": "Persistent memory across sessions for Gemini CLI using Go, DuckDB, and LiteLLM",
+  "description": "Codebase Indexer and Searcher with Persistent Memory",
   "mcpServers": {
-    "agentMem": {
+    "agentContext": {
       "command": "${extensionPath}${/}dist${/}server",
       "args": [],
       "cwd": "${extensionPath}"

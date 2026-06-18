@@ -108,7 +108,7 @@ func main() {
 	}()
 
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "agent-mem-server",
+		Name:    "agent-context",
 		Version: "1.0.0",
 	}, nil)
 
