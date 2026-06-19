@@ -5,16 +5,29 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"runtime"
 	"sync"
 )
 
-// Default configurations for the TurboQuant vector quantization
-const (
-	DefaultDimension = 1536
-	DefaultBitWidth  = 4
-	DefaultSeed      = 42
+// Default configurations for the TurboQuant vector quantization with environment overrides
+var (
+	DefaultDimension = intEnv("TURBOQUANT_DIMENSION", 1536)
+	DefaultBitWidth  = intEnv("TURBOQUANT_BIT_WIDTH", 4)
+	DefaultSeed      = int64(intEnv("TURBOQUANT_SEED", 42))
 )
+
+func intEnv(key string, fallback int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+	var i int
+	if _, err := fmt.Sscanf(val, "%d", &i); err != nil {
+		return fallback
+	}
+	return i
+}
 
 // Slice pools for reducing GC pressure in hot quantization/dequantization paths.
 // Pools are keyed by slice length (dimension) to avoid capacity mismatches.

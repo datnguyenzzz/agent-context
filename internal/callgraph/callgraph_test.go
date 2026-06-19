@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,4 +265,52 @@ func TestGenerateOnDemandTreeReport(t *testing.T) {
 	if len(respC.Callers[0].Children) != 1 || respC.Callers[0].Children[0].Name != "FunctionA" {
 		t.Errorf("expected nested caller FunctionA")
 	}
+}
+
+// BuildCallGraph builds a recursive AST call/dependency graph for all files inside the specified root (helper for tests)
+func BuildCallGraph(root string) (*CallGraph, error) {
+	nodes := make(map[string]*Node)
+	var edges []Edge
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".go" && ext != ".tf" && ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			relPath = path
+		}
+
+		fileNodes, fileEdges, err := ParseFile(path, relPath)
+		if err == nil {
+			for _, n := range fileNodes {
+				nodes[n.Name] = n
+			}
+			edges = append(edges, fileEdges...)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &CallGraph{
+		Nodes: nodes,
+		Edges: edges,
+	}, nil
 }

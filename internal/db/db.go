@@ -29,7 +29,7 @@ type Memory struct {
 
 // normalizeVectorTo3072 ensures that every vector is exactly target dimensions by slicing or padding
 func normalizeVectorTo3072(vec []float32) []float32 {
-	const targetDim = turboquant.DefaultDimension
+	targetDim := turboquant.DefaultDimension
 	if len(vec) == targetDim {
 		return vec
 	}

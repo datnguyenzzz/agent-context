@@ -3,6 +3,7 @@ package splitter
 // ponytail: AST-based splitter manager for Go and Terraform, orchestrating the file-specific parsers and chunk refining
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,10 +16,23 @@ type Chunk struct {
 	EndLine   int    `json:"end_line"`
 }
 
-const (
-	MaxChunkSize = 20000
-	ChunkOverlap = 200
+// Default chunking sizes with environment overrides
+var (
+	MaxChunkSize = intEnv("SPLITTER_MAX_CHUNK_SIZE", 20000)
+	ChunkOverlap = intEnv("SPLITTER_CHUNK_OVERLAP", 200)
 )
+
+func intEnv(key string, fallback int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+	var i int
+	if _, err := fmt.Sscanf(val, "%d", &i); err != nil {
+		return fallback
+	}
+	return i
+}
 
 func SplitFile(filePath string) ([]Chunk, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))

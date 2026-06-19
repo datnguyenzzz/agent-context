@@ -72,8 +72,14 @@ var CallGraphSchemaDescription = map[string]string{
 }
 
 func startPeriodicIndexUpdate(index *turboquant.Index) {
-	// ponytail: periodically run incremental codebase index update in background every 10 minutes, ONLY for registered codebases in DB
-	ticker := time.NewTicker(10 * time.Minute)
+	// ponytail: periodically run incremental codebase index update in background, ONLY for registered codebases in DB
+	syncInterval := 10 * time.Minute
+	if val := os.Getenv("BACKGROUND_SYNC_INTERVAL"); val != "" {
+		if dur, err := time.ParseDuration(val); err == nil {
+			syncInterval = dur
+		}
+	}
+	ticker := time.NewTicker(syncInterval)
 	go func() {
 		for range ticker.C {
 			codebases, err := db.ListCodebases()
@@ -165,7 +171,8 @@ func main() {
 			cwd = *args.CWD
 		}
 
-		results, err := db.SearchMemories(embedding, cwd, 10, index)
+		limit := intEnv("SEARCH_DEFAULT_LIMIT", 10)
+		results, err := db.SearchMemories(embedding, cwd, limit, index)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -241,7 +248,7 @@ func main() {
 			direction = *args.Direction
 		}
 
-		depth := 2
+		depth := intEnv("CALL_GRAPH_DEFAULT_DEPTH", 2)
 		if args.Depth != nil {
 			depth = *args.Depth
 		}
@@ -292,4 +299,16 @@ func main() {
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("MCP Server failed to run: %v", err)
 	}
+}
+
+func intEnv(key string, fallback int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+	var i int
+	if _, err := fmt.Sscanf(val, "%d", &i); err != nil {
+		return fallback
+	}
+	return i
 }
