@@ -20,11 +20,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	dbDir := filepath.Join(home, ".gemini")
-	dbFile := filepath.Join(dbDir, "agent-mem.db")
-	backupFile := filepath.Join(dbDir, "agent-mem.db.backup")
-	tqvFile := filepath.Join(dbDir, "agent-mem.tqv")
-	backupTqvFile := filepath.Join(dbDir, "agent-mem.tqv.backup")
+	dbFile := filepath.Join(home, "agent-mem.db")
+	backupFile := filepath.Join(home, "agent-mem.db.backup")
+	tqvFile := filepath.Join(home, "agent-mem.tqv")
+	backupTqvFile := filepath.Join(home, "agent-mem.tqv.backup")
 
 	// Backup existing DB and vector store if any
 	if _, err := os.Stat(dbFile); err == nil {

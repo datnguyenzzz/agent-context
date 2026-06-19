@@ -97,11 +97,7 @@ func getDBPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dbDir := filepath.Join(home, ".gemini")
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return "", err
-	}
-	return filepath.Join(dbDir, "agent-mem.db"), nil
+	return filepath.Join(home, "agent-mem.db"), nil
 }
 
 func Open() (*sql.DB, error) {
@@ -184,11 +180,7 @@ func GetTQPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dbDir := filepath.Join(home, ".gemini")
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return "", err
-	}
-	return filepath.Join(dbDir, "agent-mem.tqv"), nil
+	return filepath.Join(home, "agent-mem.tqv"), nil
 }
 
 func SaveMemory(id, content, category, cwd string, embedding []float32, index *turboquant.Index) error {

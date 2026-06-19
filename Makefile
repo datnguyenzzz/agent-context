@@ -17,14 +17,22 @@ build: clean
 
 rebuild: build
 
-# [2] Uninstall existing link, clean directories, and install/link the new extension non-interactively
-install: build
-	@echo "Uninstalling existing agent-context extension if any..."
+# [2] Install options for Gemini and Claude Code CLIs
+install: install-gemini install-claude
+
+install-gemini: build
+	@echo "Uninstalling existing agent-context extension in Gemini CLI if any..."
 	-gemini extensions uninstall agent-context 2>/dev/null || true
 	-rm -rf ~/.gemini/extensions/agent-context 2>/dev/null || true
-	@echo "Installing and linking the compiled Go-based agent-context extension..."
-	gemini extensions link . --consent
-	@echo "Extension 'agent-context' linked and installed successfully!"
+	@echo "Installing and linking the compiled Go-based extension to Gemini CLI..."
+	-gemini extensions link . --consent || true
+	@echo "Gemini CLI installation steps completed!"
+
+install-claude: build
+	@echo "Registering agent-mem MCP server to Claude Code CLI..."
+	-claude mcp remove agent-mem 2>/dev/null || true
+	-claude mcp add-json agent-mem '{"command":"$(shell pwd)/dist/server","args":[]}' --scope user || true
+	@echo "Claude Code CLI installation steps completed!"
 
 # [3] Index a target codebase (Default: DIR=.)
 # Usage: make index DIR=/path/to/repo

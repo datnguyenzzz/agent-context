@@ -35,11 +35,30 @@ For the most efficient workflow:
 ## 🚀 Quick Start
 
 ### 1. Build and Install
+
+You can register the codebase indexer extension with both Gemini CLI and Claude Code CLI. Run the following to automatically build and register with whichever CLIs are available on your system:
+
 ```bash
 make install
 ```
 
+Alternatively, install individually depending on your preferred CLI environment:
+
+*   **For Gemini CLI:**
+    ```bash
+    make install-gemini
+    ```
+*   **For Claude Code CLI:**
+    ```bash
+    make install-claude
+    ```
+    *(Or register manually: `claude mcp add-json agent-mem '{"command":"/absolute/path/to/project/dist/server","args":[]}' --scope user`)*
+    *(Inside a Claude Code session, you can verify the extension status at any time by typing `/mcp`)*
+
 ### 2. Index a Codebase
+
+Before querying, index your codebase directory. This recursively scans, chunks, and quantizes vectors into DuckDB and TurboQuant files:
+
 ```bash
 make index DIR=/path/to/your/codebase
 ```
@@ -67,7 +86,7 @@ Configure via environment variables:
 flowchart TD
     %% Entrypoints & Client
     subgraph Client ["Client / Agent Entrypoints"]
-        cli[Gemini CLI / Agent]
+        cli[Agent]
         idx_cli[Indexer CLI]
     end
 

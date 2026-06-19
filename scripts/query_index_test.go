@@ -25,12 +25,12 @@ func Test_QueryIndex(t *testing.T) {
 	// 2. Resolve default storage paths
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = filepath.Join(home, ".gemini", "agent-mem.db")
+		dbPath = filepath.Join(home, "agent-mem.db")
 	}
 
 	tqvPath := os.Getenv("TQV_PATH")
 	if tqvPath == "" {
-		tqvPath = filepath.Join(home, ".gemini", "agent-mem.tqv")
+		tqvPath = filepath.Join(home, "agent-mem.tqv")
 	}
 
 	// Ensure target database/index files exist before querying
