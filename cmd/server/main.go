@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,12 +24,13 @@ import (
 )
 
 type SearchArgs struct {
-	Query string `json:"query" jsonschema:"The semantic search query, detailed question, or coding concept to locate. Always pass the complete user question or detailed context instead of single keywords to ensure high-fidelity semantic matching."`
+	Query string  `json:"query" jsonschema:"The semantic search query, detailed question, or coding concept to locate. Always pass the complete user question or detailed context instead of single keywords to ensure high-fidelity semantic matching."`
+	CWD   *string `json:"cwd,omitempty" jsonschema:"Optional directory to restrict search results to. If not provided, the search is global across all indexed codebases."`
 }
 
 type CallGraphArgs struct {
 	FunctionName string  `json:"function_name" jsonschema:"The name of the target Go function/method to explore (e.g. 'SaveMemory' or 'SearchMemories')."`
-	CWD          *string `json:"cwd,omitempty" jsonschema:"Optional absolute directory path of the codebase to build the call graph from. Defaults to the current workspace."`
+	CWD          *string `json:"cwd" jsonschema:"Mandatory absolute directory path of the codebase where the target function and its files reside."`
 	Direction    *string `json:"direction,omitempty" jsonschema:"Optional direction to traverse. Supported values: 'caller', 'callee', or 'both'. Defaults to 'both'."`
 	Depth        *int    `json:"depth,omitempty" jsonschema:"Optional maximum depth of call chain traversal. Defaults to 2."`
 }
@@ -158,7 +160,11 @@ func main() {
 			return nil, nil, err
 		}
 
-		cwd, _ := os.Getwd()
+		cwd := ""
+		if args.CWD != nil {
+			cwd = *args.CWD
+		}
+
 		results, err := db.SearchMemories(embedding, cwd, 10, index)
 		if err != nil {
 			return nil, nil, err
@@ -197,11 +203,37 @@ func main() {
 		Name:        "search_call_graph",
 		Description: "Traverses and builds the bidirectional call/dependency graph (callers, callees, or both) of a function or method. Use this to understand code execution flow, sequence, or dependencies up to a custom depth. Do not use this for semantic keyword search; locate function names first via search_memory, then trace their call graph with this tool.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CallGraphArgs) (*mcp.CallToolResult, any, error) {
-		cwd := ""
-		if args.CWD != nil && *args.CWD != "" {
-			cwd = *args.CWD
-		} else {
-			cwd, _ = os.Getwd()
+		if args.CWD == nil || *args.CWD == "" {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: "Error: 'cwd' is a mandatory argument for search_call_graph. Please provide the absolute path to the codebase directory where the target function and file reside."},
+				},
+				IsError: true,
+			}, nil, nil
+		}
+		cwd := *args.CWD
+
+		// Verify that the codebase is indexed/registered in DuckDB
+		codebases, err := db.ListCodebases()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		isIndexed := false
+		for _, cb := range codebases {
+			if cwd == cb.CWD || strings.HasPrefix(cwd, cb.CWD+string(filepath.Separator)) {
+				isIndexed = true
+				break
+			}
+		}
+
+		if !isIndexed {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Error: CWD directory %q is not indexed. Please index this codebase first using 'make index DIR=%s'.", cwd, cwd)},
+				},
+				IsError: true,
+			}, nil, nil
 		}
 
 		direction := "both"
@@ -214,26 +246,22 @@ func main() {
 			depth = *args.Depth
 		}
 
-		var report *callgraph.CallGraphResponse
-		var err error
-
-		// Attempt fast on-demand lazy database querying (O(1) memory & DB connections)
+		// Fast database-only lookup (since on-the-fly fallback is removed)
 		targetNode, err := db.GetCallNode(args.FunctionName)
-		if err == nil && targetNode != nil {
-			report, err = callgraph.GenerateOnDemandTreeReport(targetNode, direction, depth, db.GetCallees, db.GetCallers)
-		} else {
-			// Resilient Fallback: recursively walk and build the graph from disk on the fly
-			cg, errBuild := callgraph.BuildCallGraph(cwd)
-			if errBuild != nil {
-				return nil, nil, errBuild
-			}
-			report, err = cg.GenerateTreeReport(args.FunctionName, direction, depth)
+		if err != nil || targetNode == nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Error: Function %q not found in the indexed codebase. Please ensure the function name is spelled correctly and that the file containing it is indexed inside CWD %q.", args.FunctionName, cwd)},
+				},
+				IsError: true,
+			}, nil, nil
 		}
 
+		report, err := callgraph.GenerateOnDemandTreeReport(targetNode, direction, depth, db.GetCallees, db.GetCallers)
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Error: %v", err)},
+					&mcp.TextContent{Text: fmt.Sprintf("Error generating call graph tree: %v", err)},
 				},
 				IsError: true,
 			}, nil, nil

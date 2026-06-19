@@ -18,6 +18,8 @@ import (
 	_ "github.com/duckdb/duckdb-go/v2"
 )
 
+const candidateLimit = 200
+
 type Memory struct {
 	ID         string    `json:"id"`
 	Content    string    `json:"content"`
@@ -244,7 +246,6 @@ func SearchMemories(queryEmbedding []float32, cwd string, limit int, index *turb
 	queryEmbedding = normalizeVectorTo3072(queryEmbedding)
 
 	// 2. Search vector store FIRST using the shared turboquant.Index (score all records)
-	const candidateLimit = 200
 	searchResults, err := index.Search(queryEmbedding, nil, candidateLimit)
 	if err != nil {
 		return nil, err
