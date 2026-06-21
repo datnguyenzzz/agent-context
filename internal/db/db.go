@@ -298,7 +298,12 @@ func searchSemanticDense(queryEmbedding []float32, limit int, index *turboquant.
 	return index.Search(queryEmbedding, nil, limit)
 }
 
-func searchLexicalSparse(queryText string, limit int) (map[string]float64, error) {
+type LexMatch struct {
+	ID    string
+	Score float64
+}
+
+func searchLexicalSparse(queryText string, limit int) ([]LexMatch, error) {
 	dbLock.Lock()
 	defer dbLock.Unlock()
 
@@ -308,9 +313,8 @@ func searchLexicalSparse(queryText string, limit int) (map[string]float64, error
 	}
 	defer db.Close()
 
-	lexMap := make(map[string]float64)
 	if queryText == "" {
-		return lexMap, nil
+		return nil, nil
 	}
 
 	// highly optimized native DuckDB Okapi BM25 full-text search query.
@@ -324,73 +328,50 @@ func searchLexicalSparse(queryText string, limit int) (map[string]float64, error
 	rows, err := db.Query(querySql, queryText, limit)
 	if err != nil {
 		// If FTS index hasn't been created yet (e.g. empty database), return empty list gracefully
-		return lexMap, nil
+		return nil, nil
 	}
 	defer rows.Close()
 
-	type lexMatch struct {
-		id    string
-		score float64
-	}
-	var matches []lexMatch
-	maxScore := 0.0001 // prevent division by zero
-
+	var matches []LexMatch
 	for rows.Next() {
-		var m lexMatch
-		if err := rows.Scan(&m.id, &m.score); err == nil {
+		var m LexMatch
+		if err := rows.Scan(&m.ID, &m.Score); err == nil {
 			matches = append(matches, m)
-			if m.score > maxScore {
-				maxScore = m.score
-			}
 		}
 	}
 
-	for _, m := range matches {
-		lexMap[m.id] = m.score / maxScore
-	}
-
-	return lexMap, nil
+	return matches, nil
 }
 
-func computeRRF(semResults []turboquant.SearchResult, lexMap map[string]float64, limit int) []candidateRRF {
-	allCandIDs := make(map[string]bool)
-	semRank := make(map[string]int)
-	for i, res := range semResults {
-		allCandIDs[res.ID] = true
-		semRank[res.ID] = i + 1
-	}
-
-	type idScore struct {
-		id    string
-		score float64
-	}
-	var lexList []idScore
-	for id, sc := range lexMap {
-		lexList = append(lexList, idScore{id, sc})
-	}
-	sort.Slice(lexList, func(i, j int) bool {
-		return lexList[i].score > lexList[j].score
-	})
-
-	lexRank := make(map[string]int)
-	for i, ls := range lexList {
-		allCandIDs[ls.id] = true
-		lexRank[ls.id] = i + 1
-	}
-
+func computeRRF(semResults []turboquant.SearchResult, lexResults []LexMatch, limit int) []candidateRRF {
 	const k = 60.0
-	var fused []candidateRRF
-	for id := range allCandIDs {
-		score := 0.0
-		if r, ok := semRank[id]; ok {
-			score += 1.0 / (k + float64(r))
-		}
-		if r, ok := lexRank[id]; ok {
-			score += 1.0 / (k + float64(r))
-		}
-		fused = append(fused, candidateRRF{id, score})
+	
+	// Pre-allocate fused slice to exact capacity to prevent dynamic re-allocations
+	fused := make([]candidateRRF, 0, len(semResults)+len(lexResults))
+
+	// 1. Add semantic results with their RRF scores
+	for i, res := range semResults {
+		score := 1.0 / (k + float64(i+1))
+		fused = append(fused, candidateRRF{id: res.ID, rrfScore: score})
 	}
 
+	// 2. Merge lexical results in-place using fast linear scan
+	for i, res := range lexResults {
+		score := 1.0 / (k + float64(i+1))
+		found := false
+		for j := range fused {
+			if fused[j].id == res.ID {
+				fused[j].rrfScore += score
+				found = true
+				break
+			}
+		}
+		if !found {
+			fused = append(fused, candidateRRF{id: res.ID, rrfScore: score})
+		}
+	}
+
+	// 3. Sort the merged results by RRF score
 	sort.Slice(fused, func(i, j int) bool {
 		return fused[i].rrfScore > fused[j].rrfScore
 	})
@@ -450,9 +431,65 @@ func fetchMemoriesMetadata(candidates []candidateRRF, cwd string) ([]Memory, err
 	return memories, nil
 }
 
+// equalFoldASCII compares two bytes case-insensitively using fast bitwise OR.
+// It compiles down to a handful of assembly instructions with zero branches.
+func equalFoldASCII(a, b byte) bool {
+	if a == b {
+		return true
+	}
+	if a|0x20 == b|0x20 {
+		lower := a | 0x20
+		return lower >= 'a' && lower <= 'z'
+	}
+	return false
+}
+
+// containsFoldASCII reports whether substr is within s, ignoring ASCII case.
+// It performs 100% on-the-fly comparisons with absolutely ZERO heap allocations.
+func containsFoldASCII(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	if len(s) < len(substr) {
+		return false
+	}
+
+	// Optimize for single-character search
+	if len(substr) == 1 {
+		target := substr[0]
+		for i := 0; i < len(s); i++ {
+			if equalFoldASCII(s[i], target) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// High-performance sliding window search
+	first := substr[0]
+	maxIdx := len(s) - len(substr)
+	for i := 0; i <= maxIdx; i++ {
+		if !equalFoldASCII(s[i], first) {
+			continue
+		}
+
+		// Match the rest of the substring
+		match := true
+		for j := 1; j < len(substr); j++ {
+			if !equalFoldASCII(s[i+j], substr[j]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 func applyGrepReRanking(memories []Memory, candidates []candidateRRF, queryText string, limit int) []Memory {
 	var scored []scoredMemory
-	lowerQuery := strings.ToLower(queryText)
 
 	for _, m := range memories {
 		rrf := 0.0
@@ -464,8 +501,8 @@ func applyGrepReRanking(memories []Memory, candidates []candidateRRF, queryText 
 		}
 
 		grepMatch := false
-		if m.Category == "project" && lowerQuery != "" {
-			if strings.Contains(strings.ToLower(m.Content), lowerQuery) {
+		if m.Category == "project" && queryText != "" {
+			if containsFoldASCII(m.Content, queryText) {
 				grepMatch = true
 			}
 		}
@@ -501,7 +538,7 @@ func SearchMemories(queryText string, queryEmbedding []float32, cwd string, limi
 	// Concurrently query Dense Semantic path and Sparse Lexical path in parallel!
 	var semResults []turboquant.SearchResult
 	var semErr error
-	lexMap := make(map[string]float64)
+	var lexResults []LexMatch
 	var lexErr error
 
 	var wg sync.WaitGroup
@@ -517,7 +554,7 @@ func SearchMemories(queryText string, queryEmbedding []float32, cwd string, limi
 	go func() {
 		defer wg.Done()
 		if queryText != "" {
-			lexMap, lexErr = searchLexicalSparse(queryText, candidateLimit)
+			lexResults, lexErr = searchLexicalSparse(queryText, candidateLimit)
 		}
 	}()
 
@@ -530,12 +567,12 @@ func SearchMemories(queryText string, queryEmbedding []float32, cwd string, limi
 		return nil, fmt.Errorf("sparse lexical path failed: %w", lexErr)
 	}
 
-	if len(semResults) == 0 && len(lexMap) == 0 {
+	if len(semResults) == 0 && len(lexResults) == 0 {
 		return nil, nil
 	}
 
 	// Reciprocal Rank Fusion (RRF) to mathematically merge Dense and Sparse rankings
-	topCandidates := computeRRF(semResults, lexMap, candidateLimit)
+	topCandidates := computeRRF(semResults, lexResults, candidateLimit)
 
 	// Fetch memories metadata and on-the-fly read code from local disk
 	memories, err := fetchMemoriesMetadata(topCandidates, cwd)

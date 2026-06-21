@@ -115,11 +115,12 @@ def plot_effectiveness_for_dim(dim):
         for j, val in enumerate(scores[m]):
             plt.text(j + offset, val + 0.01, f"{val:.2f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
 
-    plt.legend(fontsize=11, loc="upper left")
+    # Place legend cleanly above the chart to prevent clashing with the vertical bars
+    plt.legend(fontsize=11, loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=3, frameon=False)
     plt.tight_layout()
 
     png_path = os.path.join(RESULTS_DIR, f"hybrid_effectiveness_chart_d{dim}_4bit.png")
-    plt.savefig(png_path, dpi=300)
+    plt.savefig(png_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"✓ Successfully generated hybrid effectiveness chart: {png_path}")
 

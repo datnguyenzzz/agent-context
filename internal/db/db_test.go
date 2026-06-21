@@ -327,13 +327,13 @@ func Test_ComputeRRF(t *testing.T) {
 	}
 
 	// 2. Mock sparse lexical matches
-	lexMap := map[string]float64{
-		"doc-B": 1.0,
-		"doc-C": 0.5,
+	lexResults := []LexMatch{
+		{ID: "doc-B", Score: 1.0},
+		{ID: "doc-C", Score: 0.5},
 	}
 
 	// 3. Compute RRF
-	fused := computeRRF(semResults, lexMap, 5)
+	fused := computeRRF(semResults, lexResults, 5)
 
 	if len(fused) == 0 {
 		t.Fatalf("expected fused results, got 0")
@@ -583,23 +583,36 @@ func Test_FTSConjunctiveAndIgnoreNoise(t *testing.T) {
 		t.Fatalf("failed to build FTS: %v", err)
 	}
 
-	// 4. Test Conjunctive (AND) matching
+	// 4. Test Disjunctive (OR) matching
 	// "ProcessPayment" and "credit" should yield doc-1
 	res1, err := searchLexicalSparse("ProcessPayment credit", 5)
 	if err != nil {
 		t.Fatalf("failed: %v", err)
 	}
-	if len(res1) == 0 || res1["doc-1"] == 0 {
-		t.Errorf("expected conjunctive match for 'ProcessPayment credit' to yield doc-1, got: %v", res1)
+	foundDoc1 := false
+	for _, m := range res1 {
+		if m.ID == "doc-1" {
+			foundDoc1 = true
+			break
+		}
+	}
+	if !foundDoc1 {
+		t.Errorf("expected disjunctive match for 'ProcessPayment credit' to yield doc-1, got: %v", res1)
 	}
 
-	// Conjunctive mismatch: "ProcessPayment" and "email" should yield 0 results (due to AND logic!)
+	// "ProcessPayment" and "email" should match both doc-1 and doc-2 (due to OR logic!)
 	res2, err := searchLexicalSparse("ProcessPayment email", 5)
 	if err != nil {
 		t.Fatalf("failed: %v", err)
 	}
-	if len(res2) == 0 {
-		t.Errorf("expected conjunctive match for 'ProcessPayment email' to yield doc-1, got: %v", res2)
+	foundDoc1AndDoc2 := 0
+	for _, m := range res2 {
+		if m.ID == "doc-1" || m.ID == "doc-2" {
+			foundDoc1AndDoc2++
+		}
+	}
+	if foundDoc1AndDoc2 < 2 {
+		t.Errorf("expected disjunctive match for 'ProcessPayment email' to yield both doc-1 and doc-2, got: %v", res2)
 	}
 
 	// 5. Test Punctuation/Syntax Ignoring
@@ -608,7 +621,41 @@ func Test_FTSConjunctiveAndIgnoreNoise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed: %v", err)
 	}
-	if len(res3) == 0 || res3["doc-1"] == 0 {
+	foundDoc1Syntax := false
+	for _, m := range res3 {
+		if m.ID == "doc-1" {
+			foundDoc1Syntax = true
+			break
+		}
+	}
+	if !foundDoc1Syntax {
 		t.Errorf("expected clean symbol matching for 'ProcessPayment()' ignoring parentheses, got: %v", res3)
 	}
 }
+
+func Test_ContainsFoldASCII(t *testing.T) {
+	testCases := []struct {
+		haystack string
+		needle   string
+		expected bool
+	}{
+		{"The quick brown FOX jumps", "FOX", true},
+		{"The quick brown FOX jumps", "fox", true},
+		{"The quick brown fox jumps", "FOX", true},
+		{"The quick brown fox jumps", "FoX", true},
+		{"The quick brown fox jumps", "dog", false},
+		{"The quick brown fox jumps", "", true},
+		{"fox", "The quick brown fox", false}, // needle longer than haystack!
+		{"a", "A", true},
+		{"a", "b", false},
+	}
+
+	for _, tc := range testCases {
+		res := containsFoldASCII(tc.haystack, tc.needle)
+		if res != tc.expected {
+			t.Errorf("containsFoldASCII(%q, %q) returned %t, expected %t", tc.haystack, tc.needle, res, tc.expected)
+		}
+	}
+}
+
+type dummy struct{} // prevent package import issue

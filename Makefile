@@ -91,7 +91,7 @@ test-effectiveness:
 	python3 scripts/download_data.py
 	@echo "Running Hybrid Search effectiveness benchmarks..."
 	mkdir -p results
-	CGO_ENABLED=1 go test ./scripts -tags=integration -timeout=0 -run=^$$ -bench=Benchmark_HybridSearchEffectiveness -benchtime=1x -count=1 -cpuprofile=results/cpu.pprof -memprofile=results/mem.pprof -v
+	CGO_ENABLED=1 go test ./scripts -tags=integration -timeout=0 -run=^$$ -bench=Benchmark_HybridSearchEffectiveness -benchtime=1x -count=1 -cpuprofile=pprof/cpu.pprof -memprofile=pprof/mem.pprof -v
 
 # Clean compiled binaries
 clean:

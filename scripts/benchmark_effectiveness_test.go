@@ -38,14 +38,27 @@ type JobResult struct {
 }
 
 func Benchmark_HybridSearchEffectiveness_d1536(b *testing.B) {
-	runEffectivenessBenchmark(b, 1536, 10_000)
+	runEffectivenessBenchmark(b, 1536, 100_000)
 }
 
 func Benchmark_HybridSearchEffectiveness_d3072(b *testing.B) {
-	runEffectivenessBenchmark(b, 3072, 5_000)
+	runEffectivenessBenchmark(b, 3072, 50_000)
 }
 
 func runEffectivenessBenchmark(b *testing.B, dim int, limit int) {
+	// Resolve the specific user-requested CWD for indexing and local grep matching
+	benchmarkCWD := "/Users/thanh.nguyen/Documents/My_Code/agent-context/data"
+	_ = os.MkdirAll(benchmarkCWD, 0755)
+
+	// ponytail: register a robust, function-level deferred cleanup that deletes all temporary files on exit!
+	defer func() {
+		fmt.Printf("  🧹 Cleaning up temporary document files from %s...\n", benchmarkCWD)
+		for i := 0; i < limit; i++ {
+			_ = os.Remove(filepath.Join(benchmarkCWD, fmt.Sprintf("doc_%d.txt", i)))
+		}
+		fmt.Println("  ✓ Cleanup completed successfully.")
+	}()
+
 	// 1. Setup custom storage paths in a clean temporary directory to guarantee a fresh, pruned database state!
 	tmpDir, err := os.MkdirTemp("", fmt.Sprintf("effectiveness-benchmark-d%d-*", dim))
 	if err != nil {
@@ -60,9 +73,6 @@ func runEffectivenessBenchmark(b *testing.B, dim int, limit int) {
 	if err := db.InitDatabase(); err != nil {
 		b.Fatalf("failed: %v", err)
 	}
-
-	// Resolve the specific user-requested CWD for indexing and local grep matching
-	benchmarkCWD := "/Users/thanh.nguyen/Documents/My_Code/agent-context/data"
 	_ = os.MkdirAll(benchmarkCWD, 0755)
 
 	// 2. Resolve dataset paths
@@ -133,7 +143,6 @@ func runEffectivenessBenchmark(b *testing.B, dim int, limit int) {
 		fileName := fmt.Sprintf("doc_%d.txt", i)
 		filePath := filepath.Join(benchmarkCWD, fileName)
 		_ = os.WriteFile(filePath, []byte(rec.Title+"\n"+rec.Text), 0644)
-		defer os.Remove(filePath) // clean up documents after benchmark runs!
 
 		metadataHeader := fmt.Sprintf("File: %s (Lines: 1-10)", fileName)
 		batchItems[i] = db.MemoryBatchItem{
