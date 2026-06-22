@@ -64,16 +64,18 @@ def plot_effectiveness_for_dim(dim):
         data = json.load(f)
 
     # Extract metrics
-    methods = ["pure_semantic", "pure_lexical", "hybrid_search"]
+    methods = ["pure_semantic", "pure_lexical", "hybrid_search", "standard_grep"]
     method_labels = {
         "pure_semantic": "Pure Semantic (TQ)",
         "pure_lexical": "Pure Lexical (DB)",
-        "hybrid_search": "Our Hybrid Search"
+        "hybrid_search": "Our Hybrid Search",
+        "standard_grep": "Standard Grep"
     }
     colors = {
         "pure_semantic": "crimson",
         "pure_lexical": "darkgray",
-        "hybrid_search": "royalblue"
+        "hybrid_search": "royalblue",
+        "standard_grep": "forestgreen"
     }
 
     metrics = ["Recall@1", "Recall@3", "Recall@5", "MRR"]
@@ -92,14 +94,16 @@ def plot_effectiveness_for_dim(dim):
     # Create Grouped Bar Chart
     import numpy as np
     x = np.arange(len(metrics))
-    width = 0.25  # width of each bar
+    width = 0.2  # width of each bar
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(11, 6))
 
-    # Plot bars
-    plt.bar(x - width, scores["pure_semantic"], width, label=method_labels["pure_semantic"], color=colors["pure_semantic"])
-    plt.bar(x, scores["pure_lexical"], width, label=method_labels["pure_lexical"], color=colors["pure_lexical"])
-    plt.bar(x + width, scores["hybrid_search"], width, label=method_labels["hybrid_search"], color=colors["hybrid_search"])
+    # Symmetrical offsets for 4 grouped bars
+    offsets = [-1.5 * width, -0.5 * width, 0.5 * width, 1.5 * width]
+
+    # Plot bars dynamically
+    for i, m in enumerate(methods):
+        plt.bar(x + offsets[i], scores[m], width, label=method_labels[m], color=colors[m])
 
     # Format Chart
     plt.xlabel("Evaluation Metrics", fontsize=12)
@@ -111,12 +115,12 @@ def plot_effectiveness_for_dim(dim):
     
     # Add values on top of the bars
     for i, m in enumerate(methods):
-        offset = (i - 1) * width
+        offset = offsets[i]
         for j, val in enumerate(scores[m]):
-            plt.text(j + offset, val + 0.01, f"{val:.2f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
+            plt.text(j + offset, val + 0.01, f"{val:.2f}", ha="center", va="bottom", fontsize=8, fontweight="bold")
 
     # Place legend cleanly above the chart to prevent clashing with the vertical bars
-    plt.legend(fontsize=11, loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=3, frameon=False)
+    plt.legend(fontsize=11, loc="upper center", bbox_to_anchor=(0.5, 1.12), ncol=4, frameon=False)
     plt.tight_layout()
 
     png_path = os.path.join(RESULTS_DIR, f"hybrid_effectiveness_chart_d{dim}_4bit.png")
