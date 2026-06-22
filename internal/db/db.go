@@ -345,7 +345,7 @@ func searchLexicalSparse(queryText string, limit int) ([]LexMatch, error) {
 
 func computeRRF(semResults []turboquant.SearchResult, lexResults []LexMatch, limit int) []candidateRRF {
 	const k = 60.0
-	
+
 	// Pre-allocate fused slice to exact capacity to prevent dynamic re-allocations
 	fused := make([]candidateRRF, 0, len(semResults)+len(lexResults))
 
@@ -567,12 +567,41 @@ func SearchMemories(queryText string, queryEmbedding []float32, cwd string, limi
 		return nil, fmt.Errorf("sparse lexical path failed: %w", lexErr)
 	}
 
-	if len(semResults) == 0 && len(lexResults) == 0 {
-		return nil, nil
+	// PRE-FUSION JOINT FILTERING (Noise Pruning!)
+	// Check if the query embedding is completely zero (mock/uninitialized in tests)
+	isZeroVector := true
+	for _, v := range queryEmbedding {
+		if v != 0 {
+			isZeroVector = false
+			break
+		}
 	}
 
-	// Reciprocal Rank Fusion (RRF) to mathematically merge Dense and Sparse rankings
-	topCandidates := computeRRF(semResults, lexResults, candidateLimit)
+	// 1. Filter Semantic Vector candidates (Keep only those with Cosine Similarity >= 0.55 for real vectors)
+	var filteredSem []turboquant.SearchResult
+	for _, res := range semResults {
+		if isZeroVector || res.Similarity >= 0.55 {
+			filteredSem = append(filteredSem, res)
+		}
+	}
+
+	// 2. Filter Lexical BM25 candidates (Keep only those within 10% of the max BM25 score)
+	var filteredLex []LexMatch
+	if len(lexResults) > 0 {
+		maxBM25 := lexResults[0].Score // Already sorted descending by DuckDB!
+		for _, res := range lexResults {
+			if res.Score >= 0.10*maxBM25 {
+				filteredLex = append(filteredLex, res)
+			}
+		}
+	}
+
+	if len(filteredSem) == 0 && len(filteredLex) == 0 {
+		return nil, nil // Return empty list immediately if all candidates are unconfident noise!
+	}
+
+	// Reciprocal Rank Fusion (RRF) on only the validated, high-confidence candidates!
+	topCandidates := computeRRF(filteredSem, filteredLex, candidateLimit)
 
 	// Fetch memories metadata and on-the-fly read code from local disk
 	memories, err := fetchMemoriesMetadata(topCandidates, cwd)

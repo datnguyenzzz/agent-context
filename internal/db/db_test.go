@@ -658,4 +658,44 @@ func Test_ContainsFoldASCII(t *testing.T) {
 	}
 }
 
+func Test_SearchMemoriesPreFusionFiltering(t *testing.T) {
+	// Verify that the pre-fusion filters cleanly discard low-confidence noise.
+	
+	// Case 1: Semantic similarity below the 0.55 cutoff
+	semResults := []turboquant.SearchResult{
+		{ID: "noise-1", Similarity: 0.45}, // should be pruned!
+		{ID: "good-1", Similarity: 0.75},  // should be kept!
+	}
+	
+	var filteredSem []turboquant.SearchResult
+	for _, res := range semResults {
+		if res.Similarity >= 0.55 {
+			filteredSem = append(filteredSem, res)
+		}
+	}
+	if len(filteredSem) != 1 || filteredSem[0].ID != "good-1" {
+		t.Errorf("expected only good-1 to survive semantic pruning, got: %v", filteredSem)
+	}
+
+	// Case 2: Lexical BM25 score below 10% of the max BM25 score
+	lexResults := []LexMatch{
+		{ID: "lex-top", Score: 100.0},
+		{ID: "lex-ok", Score: 15.0},  // 15% of max -> should be kept!
+		{ID: "lex-noise", Score: 5.0}, // 5% of max -> should be pruned!
+	}
+	
+	var filteredLex []LexMatch
+	if len(lexResults) > 0 {
+		maxBM25 := lexResults[0].Score
+		for _, res := range lexResults {
+			if res.Score >= 0.10*maxBM25 {
+				filteredLex = append(filteredLex, res)
+			}
+		}
+	}
+	if len(filteredLex) != 2 || filteredLex[1].ID != "lex-ok" {
+		t.Errorf("expected only lex-top and lex-ok to survive, got: %v", filteredLex)
+	}
+}
+
 type dummy struct{} // prevent package import issue

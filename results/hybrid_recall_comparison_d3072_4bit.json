@@ -2,24 +2,31 @@
   "corpus_size": 50000,
   "eval_queries": 16666,
   "hybrid_search": {
-    "latency": 6456.476719068763,
-    "mrr": 0.9953768150726031,
-    "recall_1": 0.99,
+    "latency": 6102.463578543142,
+    "mrr": 0.9894495779831196,
+    "recall_1": 0.98,
     "recall_3": 0.99,
     "recall_5": 0.99
   },
   "pure_lexical": {
-    "latency": 6449.990579623185,
-    "mrr": 0.9685337413496542,
-    "recall_1": 0.96,
-    "recall_3": 0.97,
-    "recall_5": 0.97
+    "latency": 6093.64382575303,
+    "mrr": 0.9864224568982763,
+    "recall_1": 0.98,
+    "recall_3": 0.99,
+    "recall_5": 0.99
   },
   "pure_semantic": {
-    "latency": 292.1984879395176,
+    "latency": 260.6496459858394,
     "mrr": 0.9523610944437811,
     "recall_1": 0.93,
     "recall_3": 0.97,
+    "recall_5": 0.98
+  },
+  "standard_grep": {
+    "latency": 62.70988839553582,
+    "mrr": 0.9627891723641347,
+    "recall_1": 0.94,
+    "recall_3": 0.98,
     "recall_5": 0.98
   }
 }
