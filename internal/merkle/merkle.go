@@ -170,7 +170,7 @@ func DiffTrees(prev, next *MerkleNode) (added, modified, deleted []string) {
 	}
 
 	if prev.Hash == next.Hash {
-		// Subtree is identical! Prune recursion.
+		// Subtree is identical
 		return nil, nil, nil
 	}
 
@@ -194,6 +194,7 @@ func DiffTrees(prev, next *MerkleNode) (added, modified, deleted []string) {
 	}
 
 	for name, prevChild := range prev.Children {
+		// the file "<name>" has been removed entirely
 		if _, exists := next.Children[name]; !exists {
 			deleted = append(deleted, collectFiles(prevChild)...)
 		}
