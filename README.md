@@ -4,7 +4,7 @@ A model-agnostic, local-first MCP server and indexer in **Go** that helps AI cod
 
 ---
 
-## 💡 Motivation: Grep AI
+## 💡 Motivation: Semantic Grep
 
 In modern agentic harness workflows, `grep` is incredibly powerful—and often [is all you need](https://arxiv.org/pdf/2605.15184). However, raw `grep` alone is highly token-inefficient because it returns un-scoped matching lines and massive boilerplate noise, forcing the agent to ingest everything into its context window, driving up API costs. `agent-context` resolves this by introducing `Semantic Grep`. By running the grep command on your codebase and filtering the results on-the-fly using semantic meaning, we locate, extract, and load only the exact, containing AST functions. This delivers 100% precise retrieval with ~0 token waste
 
