@@ -10,15 +10,7 @@ In modern agentic harness workflows, `grep` is incredibly powerful—and often [
 
 The agent can also trace their execution paths bidirectionally using our lightweight AST Call Graph. Instead of forcing the agent to read and piece together dozens of separate files, this relational graph lets the assistant query callers and callees on-demand, explaining complex execution flows with minimal context usage.
 
----
-
-## ✨ Key Features
-
-*   **Merkle Tree Incremental Sync:** Computes directory tree diffs to index/re-embed only added or modified files (supporting `.go`, `.tf`, and `.yaml`/`.yml`).
-*   **Blazing-Fast Hybrid Search:** Fuses dense semantic vector search (TurboQuant) with native Okapi BM25 full-text indexing (DuckDB FTS extension) using Reciprocal Rank Fusion (RRF), coupled with candidate-scoped in-memory grep exact-match boosting ($1.5\times$) to deliver extreme retrieval recall and rank elevation.
-*   **AST Call & Dependency Graph:** Extracts call nodes and edges incrementally into DuckDB, allowing fast traversal and ASCII call-tree generation.
-
-> ⚠️ **Note:** Currently, the codebase indexer and call graph builder support indexing `.go`, `.tf`, `.py` and `.yaml` / `.yml` files.
+> ⚠️ **Note:** Currently, the codebase indexer and call graph builder support indexing `.go`, `.tf`, `.py` and `.yml` files.
 
 ---
 
@@ -154,7 +146,7 @@ flowchart TD
    To prevent expensive, redundant re-indexing of unaltered codebases, `agent-context` recursively structures directory states as SHA-256 cryptographic Merkle Trees. During subsequent indexing sweeps, it diffs node hashes in milliseconds to isolate only the **filesystem delta (added, modified, or deleted files)**. Only the delta is processed and embedded, drastically reducing API token costs and sweep times.
 
 2. **DuckDB for Relational Metadata and Call Graphs:**
-   We utilize **[DuckDB](https://github.com/duckdb/duckdb)** as our metadata and relational store. DuckDB is a highly performant, serverless, in-process analytical (OLAP) database engine that excels at complex queries and joins. It provides complete transactional safety (ACID), runs entirely locally with zero daemon processes, and is optimized for querying dense AST call graph nodes, edges, and function scopes (`function_name`, `cwd`, `line_start`, `line_end`) with **zero raw source code stored in-database**, saving over 99% database storage space!
+   We utilize **[DuckDB](https://github.com/duckdb/duckdb)** as our metadata and relational store. DuckDB is a highly performant, serverless, in-process analytical (OLAP) database engine that excels at complex queries and joins. It provides complete transactional safety (ACID), runs entirely locally with zero daemon processes, and is optimized for querying dense AST call graph nodes, edges, and function scopes (`function_name`, `cwd`, `line_start`, `line_end`) with **zero raw source code stored in-database**
 
 3. **TurboQuant for In-Process Vector Quantization:**
    Instead of depending on an expensive, resource-heavy external vector database that is costly to host, run, and maintain, `agent-context` runs **[TurboQuant](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/)** directly inside the Go process. TurboQuant compresses high-dimensional vectors (by up to 14x on disk) using random orthogonal rotation and Lloyd-Max scalar quantization on the Beta distribution. Most importantly, **TurboQuant requires no pre-training data or prebuilt codebooks**, providing a highly optimized, zero-maintenance, local vector quantization engine without sacrificing similarity search accuracy.
