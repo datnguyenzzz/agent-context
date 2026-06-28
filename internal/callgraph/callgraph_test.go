@@ -209,9 +209,9 @@ steps:
 }
 
 func TestGenerateOnDemandTreeReport(t *testing.T) {
-	nodeA := &Node{Name: "FunctionA", FilePath: "file1.go", StartLine: 1, EndLine: 5}
-	nodeB := &Node{Name: "FunctionB", FilePath: "file2.go", StartLine: 10, EndLine: 15}
-	nodeC := &Node{Name: "FunctionC", FilePath: "file2.go", StartLine: 20, EndLine: 25}
+	nodeA := &Node{SymbolName: "FunctionA", FilePath: "file1.go", StartLine: 1, EndLine: 5}
+	nodeB := &Node{SymbolName: "FunctionB", FilePath: "file2.go", StartLine: 10, EndLine: 15}
+	nodeC := &Node{SymbolName: "FunctionC", FilePath: "file2.go", StartLine: 20, EndLine: 25}
 
 	// Mock lazy callee retriever
 	mockGetCallees := func(caller string) ([]*Node, error) {
@@ -241,15 +241,15 @@ func TestGenerateOnDemandTreeReport(t *testing.T) {
 		t.Fatalf("failed to generate on demand report: %v", err)
 	}
 
-	if resp.TargetNode.Name != "FunctionA" {
-		t.Errorf("expected target FunctionA, got %s", resp.TargetNode.Name)
+	if resp.TargetNode.SymbolName != "FunctionA" {
+		t.Errorf("expected target FunctionA, got %s", resp.TargetNode.SymbolName)
 	}
 
 	// Downward Chain (A -> B -> C)
-	if len(resp.Callees) != 1 || resp.Callees[0].Name != "FunctionB" {
+	if len(resp.Callees) != 1 || resp.Callees[0].SymbolName != "FunctionB" {
 		t.Errorf("expected callee FunctionB")
 	}
-	if len(resp.Callees[0].Children) != 1 || resp.Callees[0].Children[0].Name != "FunctionC" {
+	if len(resp.Callees[0].Children) != 1 || resp.Callees[0].Children[0].SymbolName != "FunctionC" {
 		t.Errorf("expected nested callee FunctionC")
 	}
 
@@ -259,10 +259,10 @@ func TestGenerateOnDemandTreeReport(t *testing.T) {
 		t.Fatalf("failed to generate on demand caller report: %v", err)
 	}
 
-	if len(respC.Callers) != 1 || respC.Callers[0].Name != "FunctionB" {
+	if len(respC.Callers) != 1 || respC.Callers[0].SymbolName != "FunctionB" {
 		t.Errorf("expected caller FunctionB")
 	}
-	if len(respC.Callers[0].Children) != 1 || respC.Callers[0].Children[0].Name != "FunctionA" {
+	if len(respC.Callers[0].Children) != 1 || respC.Callers[0].Children[0].SymbolName != "FunctionA" {
 		t.Errorf("expected nested caller FunctionA")
 	}
 }
@@ -423,7 +423,7 @@ func BuildCallGraph(root string) (*CallGraph, error) {
 		fileNodes, fileEdges, err := ParseFile(path, relPath)
 		if err == nil {
 			for _, n := range fileNodes {
-				nodes[n.Name] = n
+				nodes[n.SymbolName] = n
 			}
 			edges = append(edges, fileEdges...)
 		}

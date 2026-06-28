@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -296,9 +297,12 @@ match: yes`,
 		Kind:    Literal,
 		Literal: []byte("match"),
 	}
+	var mu sync.Mutex
 	var matchedFiles []string
 	Search([]string{tmpDir}, optNone, func(path string, line int, text []byte) {
+		mu.Lock()
 		matchedFiles = append(matchedFiles, filepath.Base(path))
+		mu.Unlock()
 	})
 	if len(matchedFiles) != 4 {
 		// List all files in tmpDir to debug
@@ -316,9 +320,12 @@ match: yes`,
 		Literal:           []byte("match"),
 		AllowedExtensions: []string{".go", "yaml"}, // test with and without leading dot
 	}
+	var muAllowed sync.Mutex
 	var matchedFilesAllowed []string
 	Search([]string{tmpDir}, optAllowed, func(path string, line int, text []byte) {
+		muAllowed.Lock()
 		matchedFilesAllowed = append(matchedFilesAllowed, filepath.Base(path))
+		muAllowed.Unlock()
 	})
 
 	// We expect main.go and config.yaml to match. notes.txt and log.log must be ignored!

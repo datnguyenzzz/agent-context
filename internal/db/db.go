@@ -1165,7 +1165,7 @@ func SaveCallGraph(filePath string, nodes []*callgraph.Node, edges []callgraph.E
 		defer stmtNode.Close()
 
 		for _, n := range nodes {
-			_, err = stmtNode.Exec(n.Name, n.FilePath, n.StartLine, n.EndLine)
+			_, err = stmtNode.Exec(n.SymbolName, n.FilePath, n.StartLine, n.EndLine)
 			if err != nil {
 				return err
 			}
@@ -1252,7 +1252,7 @@ func GetCallNode(funcName string) (*callgraph.Node, error) {
 		LIMIT 1
 	`
 	var n callgraph.Node
-	err = db.QueryRow(query, funcName, "."+funcName).Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine)
+	err = db.QueryRow(query, funcName, "."+funcName).Scan(&n.SymbolName, &n.FilePath, &n.StartLine, &n.EndLine)
 	if err != nil {
 		return nil, err
 	}
@@ -1282,7 +1282,7 @@ func GetCallees(callerName string) ([]*callgraph.Node, error) {
 	var nodes []*callgraph.Node
 	for rows.Next() {
 		var n callgraph.Node
-		if err := rows.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
+		if err := rows.Scan(&n.SymbolName, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
 			nodes = append(nodes, &n)
 		}
 	}
@@ -1313,7 +1313,7 @@ func GetCallers(calleeName string) ([]*callgraph.Node, error) {
 	var nodes []*callgraph.Node
 	for rows.Next() {
 		var n callgraph.Node
-		if err := rows.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
+		if err := rows.Scan(&n.SymbolName, &n.FilePath, &n.StartLine, &n.EndLine); err == nil {
 			nodes = append(nodes, &n)
 		}
 	}

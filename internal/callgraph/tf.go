@@ -34,9 +34,9 @@ func parseTerraformFile(path string, nodes map[string]*Node, edges *[]Edge) erro
 
 				fullName := fmt.Sprintf("%s.%s", blockType, blockName)
 				activeNode = &Node{
-					Name:      fullName,
-					FilePath:  path,
-					StartLine: lineNum,
+					SymbolName: fullName,
+					FilePath:   path,
+					StartLine:  lineNum,
 				}
 				nodes[fullName] = activeNode
 				braceCount = strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
@@ -61,7 +61,7 @@ func parseTerraformFile(path string, nodes map[string]*Node, edges *[]Edge) erro
 					parts := strings.Split(word, ".")
 					if len(parts) >= 2 {
 						*edges = append(*edges, Edge{
-							Caller: activeNode.Name,
+							Caller: activeNode.SymbolName,
 							Callee: "module." + parts[1],
 						})
 					}
@@ -70,7 +70,7 @@ func parseTerraformFile(path string, nodes map[string]*Node, edges *[]Edge) erro
 					if len(parts) >= 2 {
 						if strings.Contains(parts[0], "_") {
 							*edges = append(*edges, Edge{
-								Caller: activeNode.Name,
+								Caller: activeNode.SymbolName,
 								Callee: "resource." + parts[0] + "." + parts[1],
 							})
 						}

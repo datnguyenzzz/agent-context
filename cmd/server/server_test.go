@@ -235,33 +235,22 @@ func main() {
 		t.Fatalf("failed to generate tree report: %v", err)
 	}
 
-	// Verify our graph has the correct nodes before slicing
-	if len(report.Callers) != 1 || report.Callers[0].Name != "main" {
+	// Verify our graph has the correct nodes
+	if len(report.Callers) != 1 || report.Callers[0].SymbolName != "main" {
 		t.Fatalf("unexpected callers structure in E2E call graph: %v", report.Callers)
 	}
-	if len(report.Callees) != 1 || report.Callees[0].Name != "(*DB).Connect" {
+	if len(report.Callees) != 1 || report.Callees[0].SymbolName != "(*DB).Connect" {
 		t.Fatalf("unexpected callees structure in E2E call graph: %v", report.Callees)
 	}
 
-	// 6. Execute concurrent content populator
-	populateCallGraphContent(report, tmpDir)
-
-	// 7. Assertions on all 3 files
-	expectedTarget := "func (s *Service) Process(data string) error {\n\ts.Database.Connect()\n\tprintln(\"processing data:\", data)\n\treturn nil\n}"
-	gotTarget := strings.TrimSpace(report.TargetNode.Content)
-	if gotTarget != expectedTarget {
-		t.Errorf("expected target node content %q, got %q", expectedTarget, gotTarget)
+	// 6. Assertions on all 3 node ranges and file paths
+	if report.TargetNode.StartLine != 7 || report.TargetNode.EndLine != 11 || !strings.HasSuffix(report.TargetNode.FilePath, "service.go") {
+		t.Errorf("unexpected target node metadata: %+v", report.TargetNode)
 	}
-
-	expectedCaller := "func main() {\n\tdb := &DB{URI: \"localhost\"}\n\tsvc := &Service{Database: db}\n\tsvc.Process(\"test-data\")\n}"
-	gotCaller := strings.TrimSpace(report.Callers[0].Content)
-	if gotCaller != expectedCaller {
-		t.Errorf("expected caller node content %q, got %q", expectedCaller, gotCaller)
+	if report.Callers[0].StartLine != 3 || report.Callers[0].EndLine != 7 || !strings.HasSuffix(report.Callers[0].FilePath, "main.go") {
+		t.Errorf("unexpected caller node metadata: %+v", report.Callers[0])
 	}
-
-	expectedCallee := "func (db *DB) Connect() error {\n\tprintln(\"connecting to URI\")\n\treturn nil\n}"
-	gotCallee := strings.TrimSpace(report.Callees[0].Content)
-	if gotCallee != expectedCallee {
-		t.Errorf("expected callee node content %q, got %q", expectedCallee, gotCallee)
+	if report.Callees[0].StartLine != 7 || report.Callees[0].EndLine != 10 || !strings.HasSuffix(report.Callees[0].FilePath, "models.go") {
+		t.Errorf("unexpected callee node metadata: %+v", report.Callees[0])
 	}
 }

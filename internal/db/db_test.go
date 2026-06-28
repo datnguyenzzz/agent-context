@@ -33,16 +33,16 @@ func TestDBCallGraphPersistence(t *testing.T) {
 
 	// 1. Create mock nodes and edges
 	node1 := &callgraph.Node{
-		Name:      "test_func_A",
-		FilePath:  "src/file.go",
-		StartLine: 10,
-		EndLine:   20,
+		SymbolName: "test_func_A",
+		FilePath:   "src/file.go",
+		StartLine:  10,
+		EndLine:    20,
 	}
 	node2 := &callgraph.Node{
-		Name:      "test_func_B",
-		FilePath:  "src/file.go",
-		StartLine: 30,
-		EndLine:   40,
+		SymbolName: "test_func_B",
+		FilePath:   "src/file.go",
+		StartLine:  30,
+		EndLine:    40,
 	}
 	nodes := []*callgraph.Node{node1, node2}
 
@@ -114,7 +114,7 @@ func TestDBCallGraphCrossFileIntegration(t *testing.T) {
 	}
 
 	// 1. Save File 1: FunctionA calling FunctionB (cross-file reference)
-	nodeA := &callgraph.Node{Name: "FunctionA", FilePath: "file1.go", StartLine: 1, EndLine: 5}
+	nodeA := &callgraph.Node{SymbolName: "FunctionA", FilePath: "file1.go", StartLine: 1, EndLine: 5}
 	err = SaveCallGraph("file1.go", []*callgraph.Node{nodeA}, []callgraph.Edge{
 		{Caller: "FunctionA", Callee: "FunctionB"},
 	})
@@ -123,8 +123,8 @@ func TestDBCallGraphCrossFileIntegration(t *testing.T) {
 	}
 
 	// 2. Save File 2: FunctionB calling FunctionC
-	nodeB := &callgraph.Node{Name: "FunctionB", FilePath: "file2.go", StartLine: 10, EndLine: 15}
-	nodeC := &callgraph.Node{Name: "FunctionC", FilePath: "file2.go", StartLine: 20, EndLine: 25}
+	nodeB := &callgraph.Node{SymbolName: "FunctionB", FilePath: "file2.go", StartLine: 10, EndLine: 15}
+	nodeC := &callgraph.Node{SymbolName: "FunctionC", FilePath: "file2.go", StartLine: 20, EndLine: 25}
 	err = SaveCallGraph("file2.go", []*callgraph.Node{nodeB, nodeC}, []callgraph.Edge{
 		{Caller: "FunctionB", Callee: "FunctionC"},
 	})
@@ -153,7 +153,7 @@ func TestDBCallGraphCrossFileIntegration(t *testing.T) {
 	}
 
 	// 4. Test Incremental Update: Modify file1.go so FunctionA calls FunctionD instead of FunctionB
-	nodeD := &callgraph.Node{Name: "FunctionD", FilePath: "file1.go", StartLine: 6, EndLine: 10}
+	nodeD := &callgraph.Node{SymbolName: "FunctionD", FilePath: "file1.go", StartLine: 6, EndLine: 10}
 	err = SaveCallGraph("file1.go", []*callgraph.Node{nodeA, nodeD}, []callgraph.Edge{
 		{Caller: "FunctionA", Callee: "FunctionD"},
 	})
@@ -204,11 +204,11 @@ func LoadCallGraph() (*callgraph.CallGraph, error) {
 	nodes := make(map[string]*callgraph.Node)
 	for rowsNodes.Next() {
 		var n callgraph.Node
-		err := rowsNodes.Scan(&n.Name, &n.FilePath, &n.StartLine, &n.EndLine)
+		err := rowsNodes.Scan(&n.SymbolName, &n.FilePath, &n.StartLine, &n.EndLine)
 		if err != nil {
 			return nil, err
 		}
-		nodes[n.Name] = &n
+		nodes[n.SymbolName] = &n
 	}
 
 	// 2. Load Edges

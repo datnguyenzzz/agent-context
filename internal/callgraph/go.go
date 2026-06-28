@@ -40,10 +40,10 @@ func parseGoFile(path string, fset *token.FileSet, nodes map[string]*Node, edges
 		}
 
 		nodes[funcName] = &Node{
-			Name:      funcName,
-			FilePath:  path,
-			StartLine: start,
-			EndLine:   end,
+			SymbolName: funcName,
+			FilePath:   path,
+			StartLine:  start,
+			EndLine:    end,
 		}
 
 		if fnDecl.Body != nil {

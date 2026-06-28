@@ -31,9 +31,9 @@ func parseYamlFile(path string, nodes map[string]*Node, edges *[]Edge) error {
 
 					fullName := fmt.Sprintf("step.%s", val)
 					activeNode = &Node{
-						Name:      fullName,
-						FilePath:  path,
-						StartLine: lineNum,
+						SymbolName: fullName,
+						FilePath:   path,
+						StartLine:  lineNum,
 					}
 					nodes[fullName] = activeNode
 				}
@@ -49,7 +49,7 @@ func parseYamlFile(path string, nodes map[string]*Node, edges *[]Edge) error {
 					refVal := strings.Trim(parts[1], ` '"[](),`)
 					if refVal != "" {
 						*edges = append(*edges, Edge{
-							Caller: activeNode.Name,
+							Caller: activeNode.SymbolName,
 							Callee: "step." + refVal,
 						})
 					}

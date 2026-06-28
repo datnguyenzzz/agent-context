@@ -44,10 +44,10 @@ func parsePythonFile(path string, nodes map[string]*Node, edges *[]Edge) error {
 				endLine := int(node.EndPosition().Row) + 1
 
 				nodes[className] = &Node{
-					Name:      className,
-					FilePath:  path,
-					StartLine: startLine,
-					EndLine:   endLine,
+					SymbolName: className,
+					FilePath:   path,
+					StartLine:  startLine,
+					EndLine:    endLine,
 				}
 
 				// Traverse class children with class context
@@ -71,10 +71,10 @@ func parsePythonFile(path string, nodes map[string]*Node, edges *[]Edge) error {
 				}
 
 				nodes[nodeName] = &Node{
-					Name:      nodeName,
-					FilePath:  path,
-					StartLine: startLine,
-					EndLine:   endLine,
+					SymbolName: nodeName,
+					FilePath:   path,
+					StartLine:  startLine,
+					EndLine:    endLine,
 				}
 
 				// Traverse function body with function context

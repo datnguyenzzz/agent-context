@@ -8,12 +8,11 @@ import (
 )
 
 type Node struct {
-	Name string `json:"name"`
+	SymbolName string `json:"symbol_name"`
 	// FilePath is absolute path
 	FilePath  string `json:"file_path"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
-	Content   string `json:"content,omitempty"`
 }
 
 type Edge struct {
@@ -57,12 +56,11 @@ func ParseFile(path, relPath string) ([]*Node, []Edge, error) {
 }
 
 type CallNode struct {
-	Name      string      `json:"name"`
-	FilePath  string      `json:"file_path"`
-	StartLine int         `json:"start_line"`
-	EndLine   int         `json:"end_line"`
-	Content   string      `json:"content,omitempty"`
-	Children  []*CallNode `json:"children,omitempty"`
+	SymbolName string      `json:"symbol_name"`
+	FilePath   string      `json:"file_path"`
+	StartLine  int         `json:"start_line"`
+	EndLine    int         `json:"end_line"`
+	Children   []*CallNode `json:"children,omitempty"`
 }
 
 type CallGraphResponse struct {
@@ -115,10 +113,10 @@ func (cg *CallGraph) buildCallersJSON(funcName string, depth, maxDepth int, visi
 			callerNode, exists := cg.Nodes[edge.Caller]
 			if exists {
 				cn := &CallNode{
-					Name:      callerNode.Name,
-					FilePath:  callerNode.FilePath,
-					StartLine: callerNode.StartLine,
-					EndLine:   callerNode.EndLine,
+					SymbolName: callerNode.SymbolName,
+					FilePath:   callerNode.FilePath,
+					StartLine:  callerNode.StartLine,
+					EndLine:    callerNode.EndLine,
 				}
 				cn.Children = cg.buildCallersJSON(edge.Caller, depth+1, maxDepth, visited)
 				nodes = append(nodes, cn)
@@ -148,12 +146,12 @@ func (cg *CallGraph) buildCalleesJSON(funcName string, depth, maxDepth int, visi
 
 			if calleeNode != nil {
 				cn := &CallNode{
-					Name:      calleeNode.Name,
-					FilePath:  calleeNode.FilePath,
-					StartLine: calleeNode.StartLine,
-					EndLine:   calleeNode.EndLine,
+					SymbolName: calleeNode.SymbolName,
+					FilePath:   calleeNode.FilePath,
+					StartLine:  calleeNode.StartLine,
+					EndLine:    calleeNode.EndLine,
 				}
-				cn.Children = cg.buildCalleesJSON(calleeNode.Name, depth+1, maxDepth, visited)
+				cn.Children = cg.buildCalleesJSON(calleeNode.SymbolName, depth+1, maxDepth, visited)
 				nodes = append(nodes, cn)
 			}
 		}
@@ -174,11 +172,11 @@ func GenerateOnDemandTreeReport(
 	}
 
 	if direction == "caller" || direction == "both" {
-		resp.Callers = buildOnDemandCallersJSON(targetNode.Name, 0, maxDepth, make(map[string]bool), getCallers)
+		resp.Callers = buildOnDemandCallersJSON(targetNode.SymbolName, 0, maxDepth, make(map[string]bool), getCallers)
 	}
 
 	if direction == "callee" || direction == "both" {
-		resp.Callees = buildOnDemandCalleesJSON(targetNode.Name, 0, maxDepth, make(map[string]bool), getCallees)
+		resp.Callees = buildOnDemandCalleesJSON(targetNode.SymbolName, 0, maxDepth, make(map[string]bool), getCallees)
 	}
 
 	return resp, nil
@@ -204,12 +202,12 @@ func buildOnDemandCallersJSON(
 	var nodes []*CallNode
 	for _, callerNode := range callers {
 		cn := &CallNode{
-			Name:      callerNode.Name,
-			FilePath:  callerNode.FilePath,
-			StartLine: callerNode.StartLine,
-			EndLine:   callerNode.EndLine,
+			SymbolName: callerNode.SymbolName,
+			FilePath:   callerNode.FilePath,
+			StartLine:  callerNode.StartLine,
+			EndLine:    callerNode.EndLine,
 		}
-		cn.Children = buildOnDemandCallersJSON(callerNode.Name, depth+1, maxDepth, visited, getCallers)
+		cn.Children = buildOnDemandCallersJSON(callerNode.SymbolName, depth+1, maxDepth, visited, getCallers)
 		nodes = append(nodes, cn)
 	}
 	return nodes
@@ -235,12 +233,12 @@ func buildOnDemandCalleesJSON(
 	var nodes []*CallNode
 	for _, calleeNode := range callees {
 		cn := &CallNode{
-			Name:      calleeNode.Name,
-			FilePath:  calleeNode.FilePath,
-			StartLine: calleeNode.StartLine,
-			EndLine:   calleeNode.EndLine,
+			SymbolName: calleeNode.SymbolName,
+			FilePath:   calleeNode.FilePath,
+			StartLine:  calleeNode.StartLine,
+			EndLine:    calleeNode.EndLine,
 		}
-		cn.Children = buildOnDemandCalleesJSON(calleeNode.Name, depth+1, maxDepth, visited, getCallees)
+		cn.Children = buildOnDemandCalleesJSON(calleeNode.SymbolName, depth+1, maxDepth, visited, getCallees)
 		nodes = append(nodes, cn)
 	}
 	return nodes

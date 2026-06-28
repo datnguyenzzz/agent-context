@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -45,33 +44,13 @@ type MemoryResult struct {
 }
 
 type MemoryResponse struct {
-	SchemaDescription map[string]string `json:"schema_description"`
-	Results           []MemoryResult    `json:"results"`
-}
-
-var MemorySchemaDescription = map[string]string{
-	"schema_description": "Explanatory key-value definitions for all properties inside this search_memory response structure.",
-	"results":            "A list of semantically matched codebase code chunks, sorted descending by similarity.",
-	"absolute_path":      "The absolute path of the file containing the matched segment.",
-	"symbol_name":        "The name of the symbol/function declared in this block.",
-	"start_line":         "The 1-based start line of this block/function.",
-	"end_line":           "The 1-based end line of this block/function.",
-	"content":            "The actual matching code segment lines read on demand from disk.",
+	Results []MemoryResult `json:"results"`
 }
 
 type CallGraphMCPResponse struct {
-	SchemaDescription map[string]string     `json:"schema_description"`
-	TargetNode        *callgraph.Node       `json:"target_node"`
-	Callers           []*callgraph.CallNode `json:"callers,omitempty"`
-	Callees           []*callgraph.CallNode `json:"callees,omitempty"`
-}
-
-var CallGraphSchemaDescription = map[string]string{
-	"schema_description": "Explanatory key-value definitions for all properties inside this response structure.",
-	"target_node":        "The metadata and sliced whole function content of the block/function that was explored (Name, FilePath, StartLine, EndLine, Content).",
-	"callers":            "A tree representation of functions/blocks that call or depend on the target node, containing their sliced whole function content.",
-	"callees":            "A tree representation of functions/blocks called or referenced by the target node, containing their sliced whole function content.",
-	"children":           "Nested dependencies (e.g. callers of a caller, or callees of a callee) tracing the execution tree recursively.",
+	TargetNode *callgraph.Node       `json:"target_node"`
+	Callers    []*callgraph.CallNode `json:"callers,omitempty"`
+	Callees    []*callgraph.CallNode `json:"callees,omitempty"`
 }
 
 func startPeriodicIndexUpdate(index *turboquant.Index) {
@@ -192,7 +171,57 @@ func main() {
 	// 1. Register search_memory tool
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_memory",
-		Description: "MANDATORY FIRST-USE DIRECTIVE: Use this tool FIRST to explore code conceptually, locate files, configurations, or relevant functions before reading files, listing directories, or running grep. Traditional grep searches are highly token-inefficient and costly; use search_memory instead to locate matches semantically, faster and cheaper. Only use grep if you know the exact identifier name or require all matches.",
+		Description: "Use this tool FIRST to explore code conceptually, locate files, configurations, or relevant functions by natural human language.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "The semantic search query, detailed question, or coding concept to locate. Always pass the complete user question or detailed context instead of single keywords to ensure high-fidelity semantic matching.",
+				},
+				"cwd": map[string]any{
+					"type":        "string",
+					"description": "Optional absolute directory path to restrict search results to. If not provided, the search defaults to the current working directory where the server is running.",
+				},
+			},
+			"required": []string{"query"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"results": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"absolute_path": map[string]any{
+								"type":        "string",
+								"description": "The absolute file path containing the matched code block.",
+							},
+							"symbol_name": map[string]any{
+								"type":        "string",
+								"description": "The name of the symbol/function declared in this block.",
+							},
+							"start_line": map[string]any{
+								"type":        "integer",
+								"description": "The 1-based start line of this block/function.",
+							},
+							"end_line": map[string]any{
+								"type":        "integer",
+								"description": "The 1-based end line of this block/function.",
+							},
+							"content": map[string]any{
+								"type":        "string",
+								"description": "The actual matching code segment lines read on demand from disk.",
+							},
+						},
+						"required": []string{"absolute_path", "symbol_name", "start_line", "end_line", "content"},
+					},
+					"description": "A list of semantically matched codebase code chunks, sorted descending by similarity.",
+				},
+			},
+			"required": []string{"results"},
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args SearchArgs) (*mcp.CallToolResult, any, error) {
 		embedding, err := llm.GetEmbedding(args.Query, turboquant.DefaultDimension)
 		if err != nil {
@@ -226,8 +255,7 @@ func main() {
 		}
 
 		mcpResponse := MemoryResponse{
-			SchemaDescription: MemorySchemaDescription,
-			Results:           mcpResults,
+			Results: mcpResults,
 		}
 
 		jsonBytes, err := json.MarshalIndent(mcpResponse, "", "  ")
@@ -245,7 +273,74 @@ func main() {
 	// 2. Register search_call_graph tool
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_call_graph",
-		Description: "Traverses and builds the bidirectional call/dependency graph (callers, callees, or both) of a function or method. Use this to understand code execution flow, sequence, or dependencies up to a custom depth. Do not use this for semantic keyword search; if you don't know the function names yet, locate them first via search_memory, then trace their call graph with this tool.",
+		Description: "Traverses and builds the bidirectional call/dependency graph (callers, callees, or both) of a function or method. Use this to understand code execution flow, sequence, or dependencies up to a custom depth.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"symbol_name": map[string]any{
+					"type":        "string",
+					"description": "The name of the target symbol (function, method, class, struct, resource) to explore (e.g. 'SaveMemory' or 'SearchMemories').",
+				},
+				"cwd": map[string]any{
+					"type":        "string",
+					"description": "Mandatory absolute directory path of the codebase where the target symbol and its files reside.",
+				},
+				"direction": map[string]any{
+					"type":        "string",
+					"description": "Optional direction to traverse. Supported values: 'caller', 'callee', or 'both'. Defaults to 'both'.",
+				},
+				"depth": map[string]any{
+					"type":        "integer",
+					"description": "Optional maximum depth of call chain traversal. Defaults to 2.",
+				},
+			},
+			"required": []string{"symbol_name", "cwd"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"target_node": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"symbol_name": map[string]any{
+							"type":        "string",
+							"description": "The name of the target block/function/symbol.",
+						},
+						"file_path": map[string]any{
+							"type":        "string",
+							"description": "The absolute file path containing the function declaration.",
+						},
+						"start_line": map[string]any{
+							"type":        "integer",
+							"description": "The 1-based start line of the function.",
+						},
+						"end_line": map[string]any{
+							"type":        "integer",
+							"description": "The 1-based end line of the function.",
+						},
+					},
+					"required":    []string{"symbol_name", "file_path", "start_line", "end_line"},
+					"description": "The metadata of the block/function that was explored.",
+				},
+				"callers": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type":        "object",
+						"description": "A node in the caller execution graph tree.",
+					},
+					"description": "A tree representation of functions/blocks that call or depend on the target node.",
+				},
+				"callees": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type":        "object",
+						"description": "A node in the callee execution graph tree.",
+					},
+					"description": "A tree representation of functions/blocks called or referenced by the target node.",
+				},
+			},
+			"required": []string{"target_node"},
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CallGraphArgs) (*mcp.CallToolResult, any, error) {
 		if args.CWD == nil || *args.CWD == "" {
 			return &mcp.CallToolResult{
@@ -321,14 +416,10 @@ func main() {
 			}, nil, nil
 		}
 
-		// Populate whole function contents for all nodes on-the-fly!
-		populateCallGraphContent(report, cwd)
-
 		mcpReport := CallGraphMCPResponse{
-			SchemaDescription: CallGraphSchemaDescription,
-			TargetNode:        report.TargetNode,
-			Callers:           report.Callers,
-			Callees:           report.Callees,
+			TargetNode: report.TargetNode,
+			Callers:    report.Callers,
+			Callees:    report.Callees,
 		}
 
 		jsonBytes, err := json.MarshalIndent(mcpReport, "", "  ")
@@ -349,91 +440,6 @@ func main() {
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("MCP Server failed to run: %v", err)
 	}
-}
-
-type mcpNodeRef struct {
-	node      *callgraph.Node
-	callNode  *callgraph.CallNode
-	startLine int
-	endLine   int
-}
-
-func populateCallGraphContent(report *callgraph.CallGraphResponse, cwd string) {
-	if report == nil {
-		return
-	}
-
-	fileGroups := make(map[string][]mcpNodeRef)
-	var collect func(node *callgraph.CallNode)
-	collect = func(node *callgraph.CallNode) {
-		if node == nil {
-			return
-		}
-		if node.FilePath != "" {
-			fileGroups[node.FilePath] = append(fileGroups[node.FilePath], mcpNodeRef{
-				callNode:  node,
-				startLine: node.StartLine,
-				endLine:   node.EndLine,
-			})
-		}
-		for _, child := range node.Children {
-			collect(child)
-		}
-	}
-
-	if report.TargetNode != nil && report.TargetNode.FilePath != "" {
-		fileGroups[report.TargetNode.FilePath] = append(fileGroups[report.TargetNode.FilePath], mcpNodeRef{
-			node:      report.TargetNode,
-			startLine: report.TargetNode.StartLine,
-			endLine:   report.TargetNode.EndLine,
-		})
-	}
-
-	for _, caller := range report.Callers {
-		collect(caller)
-	}
-	for _, callee := range report.Callees {
-		collect(callee)
-	}
-
-	// 2. Open and slice files on-the-fly directly using db.LoadAndSliceMemoryBlock concurrently
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10)
-
-	for relPath, refs := range fileGroups {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(rPath string, nodeRefs []mcpNodeRef) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			fullPath := rPath
-			if !filepath.IsAbs(fullPath) {
-				fullPath = filepath.Join(cwd, rPath)
-			}
-			memories := make([]*db.Memory, len(nodeRefs))
-			for i, r := range nodeRefs {
-				memories[i] = &db.Memory{
-					LineStart: r.startLine,
-					LineEnd:   r.endLine,
-				}
-			}
-
-			db.LoadAndSliceMemoryBlock(fullPath, memories)
-
-			// 3. Copy slice content back to the node objects
-			for i, r := range nodeRefs {
-				content := memories[i].Content
-				if r.node != nil {
-					r.node.Content = content
-				}
-				if r.callNode != nil {
-					r.callNode.Content = content
-				}
-			}
-		}(relPath, refs)
-	}
-	wg.Wait()
 }
 
 func intEnv(key string, fallback int) int {
