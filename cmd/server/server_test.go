@@ -254,3 +254,129 @@ func main() {
 		t.Errorf("unexpected callee node metadata: %+v", report.Callees[0])
 	}
 }
+
+func Test_PopulateCallGraphContent_Python(t *testing.T) {
+	// End-to-end Python: index a multi-file Python codebase through the real merkle pipeline,
+	// then verify both the persisted call graph (callers/callees) and that a Python chunk is searchable.
+	originalDim := turboquant.DefaultDimension
+	turboquant.DefaultDimension = 16
+	defer func() { turboquant.DefaultDimension = originalDim }()
+
+	tmpDir, err := os.MkdirTemp("", "mcp-cg-e2e-py-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", originalHome)
+
+	if err := db.InitDatabase(); err != nil {
+		t.Fatalf("failed to init database: %v", err)
+	}
+
+	tq, err := turboquant.NewTurboQuant(16, 4, 42)
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	tqvPath := filepath.Join(tmpDir, "test_py_cg.tqv")
+	index, err := turboquant.NewIndex(tqvPath, tq)
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+
+	// 1. Module-level Python functions across three files: main -> process -> connect
+	utilPath := filepath.Join(tmpDir, "util.py")
+	utilContent := `def connect():
+    print("connecting")
+    return None
+`
+	if err := os.WriteFile(utilPath, []byte(utilContent), 0644); err != nil {
+		t.Fatalf("failed to write util.py: %v", err)
+	}
+
+	servicePath := filepath.Join(tmpDir, "service.py")
+	serviceContent := `def process(data):
+    connect()
+    print("processing")
+    return None
+`
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+		t.Fatalf("failed to write service.py: %v", err)
+	}
+
+	mainPath := filepath.Join(tmpDir, "main.py")
+	mainContent := `def main():
+    process("test-data")
+`
+	if err := os.WriteFile(mainPath, []byte(mainContent), 0644); err != nil {
+		t.Fatalf("failed to write main.py: %v", err)
+	}
+
+	// 2. Mock the LiteLLM client
+	mockLLM := mockllm.NewMockILLM(t)
+	mockLLM.On("GetEmbedding", mock.Anything, mock.Anything).Return(func(text string, dim int) []float32 {
+		mockVec := make([]float32, dim)
+		mockVec[0] = 1.0
+		return mockVec
+	}, nil)
+	originalClient := llm.DefaultClient
+	llm.DefaultClient = mockLLM
+	defer func() { llm.DefaultClient = originalClient }()
+
+	// 3. Register codebase and run the real indexing pipeline
+	if err := db.SaveMerkleTree(tmpDir, "initial_hash", "{}"); err != nil {
+		t.Fatalf("failed to save codebase: %v", err)
+	}
+	if _, _, _, err = merkle.UpdateIndex(tmpDir, index); err != nil {
+		t.Fatalf("failed to run UpdateIndex: %v", err)
+	}
+
+	// 4. Retrieve the Python module function node directly from DB
+	targetNode, err := db.GetCallNode("process")
+	if err != nil || targetNode == nil {
+		t.Fatalf("failed to retrieve target node: %v", err)
+	}
+
+	// 5. Bi-directional execution tree: main -> process -> connect
+	report, err := callgraph.GenerateOnDemandTreeReport(targetNode, "both", 2, db.GetCallees, db.GetCallers)
+	if err != nil {
+		t.Fatalf("failed to generate tree report: %v", err)
+	}
+
+	if len(report.Callers) != 1 || report.Callers[0].SymbolName != "main" {
+		t.Fatalf("unexpected callers structure in Python E2E call graph: %v", report.Callers)
+	}
+	if len(report.Callees) != 1 || report.Callees[0].SymbolName != "connect" {
+		t.Fatalf("unexpected callees structure in Python E2E call graph: %v", report.Callees)
+	}
+
+	// 6. Node metadata / file paths
+	if report.TargetNode.StartLine != 1 || report.TargetNode.EndLine != 4 || !strings.HasSuffix(report.TargetNode.FilePath, "service.py") {
+		t.Errorf("unexpected target node metadata: %+v", report.TargetNode)
+	}
+	if report.Callers[0].StartLine != 1 || report.Callers[0].EndLine != 2 || !strings.HasSuffix(report.Callers[0].FilePath, "main.py") {
+		t.Errorf("unexpected caller node metadata: %+v", report.Callers[0])
+	}
+	if report.Callees[0].StartLine != 1 || report.Callees[0].EndLine != 3 || !strings.HasSuffix(report.Callees[0].FilePath, "util.py") {
+		t.Errorf("unexpected callee node metadata: %+v", report.Callees[0])
+	}
+
+	// 7. The Python source must also be indexed as a searchable memory chunk
+	memories, err := db.SearchMemories("process the data", make([]float32, 16), tmpDir, 5, index)
+	if err != nil {
+		t.Fatalf("failed to search memories: %v", err)
+	}
+	foundPy := false
+	for _, m := range memories {
+		if strings.HasSuffix(m.CWD, ".py") {
+			foundPy = true
+			break
+		}
+	}
+	if !foundPy {
+		t.Errorf("expected at least one indexed Python (.py) memory chunk, got: %v", memories)
+	}
+}

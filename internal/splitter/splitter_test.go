@@ -3,6 +3,7 @@ package splitter
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -246,5 +247,93 @@ class Logger:
 
 	if chunks[1].StartLine != 6 || chunks[1].EndLine != 9 {
 		t.Errorf("expected chunk 1 (class block) to be 6-9, got %d-%d", chunks[1].StartLine, chunks[1].EndLine)
+	}
+}
+
+func TestSplitPythonFile_AsyncAndNestedFunctions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "splitter-test-py-async-*")
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pyCode := `import asyncio
+
+async def fetch(url):
+    return url
+
+def outer():
+    def inner():
+        return 1
+    return inner()
+`
+	filePath := filepath.Join(tmpDir, "async.py")
+	if err := os.WriteFile(filePath, []byte(pyCode), 0644); err != nil {
+		t.Fatalf("failed to write async.py: %v", err)
+	}
+
+	chunks, err := SplitFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to split Python file: %v", err)
+	}
+
+	// Expect 3 chunks: the import header (globals), the async fetch function,
+	// and outer() — whose nested inner() must stay inside outer's single chunk.
+	if len(chunks) != 3 {
+		t.Fatalf("expected exactly 3 chunks, got %d: %v", len(chunks), chunks)
+	}
+
+	if chunks[0].SymbolName != "" || chunks[0].StartLine != 1 || chunks[0].EndLine != 2 {
+		t.Errorf("expected chunk 0 (globals) to be unnamed 1-2, got %q %d-%d", chunks[0].SymbolName, chunks[0].StartLine, chunks[0].EndLine)
+	}
+	if chunks[1].SymbolName != "fetch" || chunks[1].StartLine != 3 || chunks[1].EndLine != 4 {
+		t.Errorf("expected chunk 1 to be async func fetch 3-4, got %q %d-%d", chunks[1].SymbolName, chunks[1].StartLine, chunks[1].EndLine)
+	}
+	if chunks[2].SymbolName != "outer" || chunks[2].StartLine != 6 || chunks[2].EndLine != 9 {
+		t.Errorf("expected chunk 2 to be outer 6-9, got %q %d-%d", chunks[2].SymbolName, chunks[2].StartLine, chunks[2].EndLine)
+	}
+	// nested function should not be split out; it lives inside outer's chunk body
+	if !strings.Contains(chunks[2].Content, "def inner") {
+		t.Errorf("expected nested inner() to remain within outer's chunk, got: %s", chunks[2].Content)
+	}
+}
+
+func TestSplitPythonFile_DecoratedDefinition(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "splitter-test-py-deco-*")
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pyCode := `import functools
+
+@functools.cache
+def expensive(n):
+    return n * n
+`
+	filePath := filepath.Join(tmpDir, "deco.py")
+	if err := os.WriteFile(filePath, []byte(pyCode), 0644); err != nil {
+		t.Fatalf("failed to write deco.py: %v", err)
+	}
+
+	chunks, err := SplitFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to split Python file: %v", err)
+	}
+
+	// A decorated function must be captured as its own named chunk that includes
+	// the decorator line, not merged into the surrounding global statements.
+	var fn *Chunk
+	for i := range chunks {
+		if chunks[i].SymbolName == "expensive" {
+			fn = &chunks[i]
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("expected a named chunk 'expensive' for the decorated function, got chunks: %v", chunks)
+	}
+	if !strings.Contains(fn.Content, "@functools.cache") {
+		t.Errorf("expected decorated chunk to include its decorator, got: %s", fn.Content)
 	}
 }

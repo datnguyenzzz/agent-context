@@ -47,7 +47,7 @@ func sha256Hash(data string) string {
 
 func isIndexable(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
-	return ext == ".go" || ext == ".tf" || ext == ".yaml" || ext == ".yml"
+	return ext == ".go" || ext == ".tf" || ext == ".yaml" || ext == ".yml" || ext == ".py"
 }
 
 // BuildMerkleTree scans the filesystem recursively and constructs the Merkle Tree of indexable files

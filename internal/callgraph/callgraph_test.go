@@ -393,6 +393,162 @@ class UserService:
 	}
 }
 
+func TestBuildCallGraph_Python_ModuleFunctions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "callgraph-test-py-mod-*")
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Module-level functions (no classes): main -> process -> helper
+	pyCode := `def helper(x):
+    return x * 2
+
+def process(data):
+    return helper(data)
+
+def main():
+    process(10)
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "pipeline.py"), []byte(pyCode), 0644)
+
+	cg, err := BuildCallGraph(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to build call graph: %v", err)
+	}
+
+	expectedNodes := []struct {
+		name      string
+		startLine int
+		endLine   int
+	}{
+		{"helper", 1, 2},
+		{"process", 4, 5},
+		{"main", 7, 8},
+	}
+	for _, expected := range expectedNodes {
+		n, ok := cg.Nodes[expected.name]
+		if !ok {
+			t.Errorf("expected Python node %s to be registered", expected.name)
+			continue
+		}
+		if n.StartLine != expected.startLine || n.EndLine != expected.endLine {
+			t.Errorf("node %s line mismatch: expected %d-%d, got %d-%d", expected.name, expected.startLine, expected.endLine, n.StartLine, n.EndLine)
+		}
+	}
+
+	// Downward chain from main should reach both process and helper transitively
+	resp, err := cg.GenerateTreeReport("main", "callee", 3)
+	if err != nil {
+		t.Fatalf("failed to generate tree report: %v", err)
+	}
+	reportBytes, _ := json.Marshal(resp)
+	report := string(reportBytes)
+	if !strings.Contains(report, "process") || !strings.Contains(report, "helper") {
+		t.Errorf("expected main callee chain to contain process and helper: %s", report)
+	}
+
+	// Upward chain: helper's callers should include process and (transitively) main
+	respUp, err := cg.GenerateTreeReport("helper", "caller", 3)
+	if err != nil {
+		t.Fatalf("failed to generate upward report: %v", err)
+	}
+	upwardBytes, _ := json.Marshal(respUp)
+	upward := string(upwardBytes)
+	if !strings.Contains(upward, "process") || !strings.Contains(upward, "main") {
+		t.Errorf("expected helper callers to contain process and main: %s", upward)
+	}
+}
+
+func TestBuildCallGraph_Python_CrossFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "callgraph-test-py-xfile-*")
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	utilPy := `def shared_util():
+    return 42
+`
+	mainPy := `def run():
+    return shared_util()
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "util.py"), []byte(utilPy), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "main.py"), []byte(mainPy), 0644)
+
+	cg, err := BuildCallGraph(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to build call graph: %v", err)
+	}
+
+	for _, name := range []string{"shared_util", "run"} {
+		if _, ok := cg.Nodes[name]; !ok {
+			t.Errorf("expected Python node %s to be registered", name)
+		}
+	}
+
+	// Cross-file edge: run (main.py) -> shared_util (util.py)
+	foundEdge := false
+	for _, e := range cg.Edges {
+		if e.Caller == "run" && e.Callee == "shared_util" {
+			foundEdge = true
+			break
+		}
+	}
+	if !foundEdge {
+		t.Errorf("expected cross-file edge run -> shared_util, got edges: %v", cg.Edges)
+	}
+
+	resp, err := cg.GenerateTreeReport("shared_util", "caller", 2)
+	if err != nil {
+		t.Fatalf("failed to generate tree report: %v", err)
+	}
+	jsonBytes, _ := json.Marshal(resp)
+	if !strings.Contains(string(jsonBytes), "run") {
+		t.Errorf("expected shared_util callers to contain run across files: %s", jsonBytes)
+	}
+}
+
+func TestBuildCallGraph_Python_AsyncMethod(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "callgraph-test-py-async-*")
+	if err != nil {
+		t.Fatalf("failed: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// async method should be registered and its self.* calls captured like a sync method
+	pyCode := `class Worker:
+    async def run(self):
+        self.cleanup()
+
+    def cleanup(self):
+        pass
+`
+	_ = os.WriteFile(filepath.Join(tmpDir, "worker.py"), []byte(pyCode), 0644)
+
+	cg, err := BuildCallGraph(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to build call graph: %v", err)
+	}
+
+	for _, name := range []string{"Worker", "Worker.run", "Worker.cleanup"} {
+		if _, ok := cg.Nodes[name]; !ok {
+			t.Errorf("expected Python node %s to be registered", name)
+		}
+	}
+
+	foundEdge := false
+	for _, e := range cg.Edges {
+		if e.Caller == "Worker.run" && e.Callee == "Worker.cleanup" {
+			foundEdge = true
+			break
+		}
+	}
+	if !foundEdge {
+		t.Errorf("expected edge Worker.run -> Worker.cleanup from async method, got edges: %v", cg.Edges)
+	}
+}
+
 // BuildCallGraph builds a recursive AST call/dependency graph for all files inside the specified root (helper for tests)
 func BuildCallGraph(root string) (*CallGraph, error) {
 	nodes := make(map[string]*Node)

@@ -39,6 +39,17 @@ func parsePythonFile(filePath string) ([]Chunk, error) {
 		child := root.Child(i)
 		kind := child.Kind()
 
+		// A decorated class/function is wrapped in a decorated_definition node. Unwrap it to the
+		// inner definition for the symbol name, but keep `child`'s range so the decorator lines
+		// stay inside the chunk.
+		nameSource := child
+		if kind == "decorated_definition" {
+			if inner := child.ChildByFieldName("definition"); inner != nil {
+				nameSource = inner
+				kind = inner.Kind()
+			}
+		}
+
 		if kind == "class_definition" || kind == "function_definition" {
 			startLine := int(child.StartPosition().Row) + 1
 			endLine := int(child.EndPosition().Row) + 1
@@ -61,7 +72,7 @@ func parsePythonFile(filePath string) ([]Chunk, error) {
 
 			// Extract the class or function name using Tree-sitter ChildByFieldName
 			var funcName string
-			nameNode := child.ChildByFieldName("name")
+			nameNode := nameSource.ChildByFieldName("name")
 			if nameNode != nil {
 				funcName = string(contentBytes[nameNode.StartByte():nameNode.EndByte()])
 			}
